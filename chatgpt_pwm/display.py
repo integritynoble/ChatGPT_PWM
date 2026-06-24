@@ -54,6 +54,9 @@ def print_help(model: str, system_prompt: str) -> None:
   [command]/system [prompt][/command] Set system prompt
   [command]/copy[/command]            Copy last reply to clipboard
   [command]/tokens[/command]          Show token usage for this session
+  [command]/login[/command]           Sign in with your ChatGPT account
+  [command]/logout[/command]          Sign out
+  [command]/whoami[/command]          Show signed-in account
   [command]/quit[/command]            Exit
 
 [bold]Tips[/bold]

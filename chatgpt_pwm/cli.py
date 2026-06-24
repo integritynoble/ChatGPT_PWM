@@ -1,4 +1,4 @@
-"""Main CLI entry point — interactive ChatGPT session."""
+"""Main CLI entry point — interactive ChatGPT session over a ChatGPT subscription."""
 from __future__ import annotations
 
 import sys
@@ -10,21 +10,17 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style as PTStyle
 
-from . import __version__
-from .chat import build_client, build_messages, complete_response, stream_response
+from . import __version__, auth, subscription
 from .config import (
     AVAILABLE_MODELS,
     DEFAULT_MODEL,
     DEFAULT_SYSTEM_PROMPT,
     HISTORY_DIR,
-    get_api_key,
-    get_base_url,
     load_config,
     save_config,
 )
 from .display import (
     console,
-    print_assistant_full,
     print_assistant_start,
     print_assistant_stream_chunk,
     print_banner,
@@ -32,21 +28,30 @@ from .display import (
     print_help,
     print_info,
     print_model_list,
-    print_rule,
     print_stream_end,
     print_system_prompt,
     print_token_usage,
-    print_user,
 )
 from .history import list_conversations, load_conversation, save_conversation
-
 
 PROMPT_HISTORY_FILE = HISTORY_DIR.parent / ".input_history"
 PROMPT_STYLE = PTStyle.from_dict({"prompt": "#00bfff bold"})
 
 
+def build_messages(
+    conversation: List[dict],
+    user_input: str,
+    system_prompt: Optional[str],
+) -> List[dict]:
+    messages: List[dict] = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.extend(conversation)
+    messages.append({"role": "user", "content": user_input})
+    return messages
+
+
 def _get_multiline_input(session: PromptSession) -> Optional[str]:
-    """Collect possibly multi-line input. Lines ending with \\ continue."""
     lines: List[str] = []
     while True:
         try:
@@ -69,9 +74,6 @@ def _handle_command(
     total_prompt_tokens: int,
     total_completion_tokens: int,
 ) -> tuple[List[dict], str, str, bool]:
-    """
-    Returns (conversation, model, system_prompt, should_quit).
-    """
     parts = cmd.strip().split(None, 1)
     verb = parts[0].lower()
     arg = parts[1] if len(parts) > 1 else ""
@@ -149,6 +151,19 @@ def _handle_command(
         total = total_prompt_tokens + total_completion_tokens
         print_token_usage(total_prompt_tokens, total_completion_tokens, total)
 
+    elif verb == "/login":
+        _do_login()
+
+    elif verb == "/logout":
+        if auth.logout():
+            print_info("Logged out.")
+        else:
+            print_info("No active session in chatgpt-pwm store.")
+
+    elif verb == "/whoami":
+        email = auth.account_email()
+        print_info(f"Signed in as {email}" if email else "Not signed in.")
+
     elif verb == "/copy":
         last_reply = next(
             (m["content"] for m in reversed(conversation) if m["role"] == "assistant"),
@@ -157,7 +172,8 @@ def _handle_command(
         if last_reply:
             try:
                 import subprocess
-                p = subprocess.run(["xclip", "-selection", "clipboard"], input=last_reply.encode(), check=True)
+                subprocess.run(["xclip", "-selection", "clipboard"],
+                               input=last_reply.encode(), check=True)
                 print_info("Copied to clipboard.")
             except Exception:
                 try:
@@ -175,41 +191,32 @@ def _handle_command(
     return conversation, model, system_prompt, False
 
 
-@click.command(context_settings={"help_option_names": ["-h", "--help"]})
-@click.option("--model", "-m", default=None, help="Model to use (e.g. gpt-4o)")
-@click.option("--system", "-s", default=None, help="System prompt")
-@click.option("--no-stream", is_flag=True, default=False, help="Disable streaming")
-@click.option("--api-key", envvar="OPENAI_API_KEY", default=None, help="API key")
-@click.option("--base-url", envvar="OPENAI_BASE_URL", default=None, help="Override API base URL")
-@click.option("--load", "load_path", default=None, type=click.Path(exists=True), help="Load conversation file")
-@click.option("--version", is_flag=True, is_eager=True, expose_value=False,
-              callback=lambda ctx, _, v: (click.echo(f"chatgpt-pwm {__version__}"), ctx.exit()) if v else None,
-              help="Show version")
-def main(
+def _do_login() -> bool:
+    try:
+        print_info("Starting ChatGPT sign-in…")
+        email = auth.login()
+        print_info(f"Signed in{' as ' + email if email else ''}.")
+        return True
+    except auth.AuthError as e:
+        print_error(str(e))
+        return False
+
+
+def _run_chat(
     model: Optional[str],
     system: Optional[str],
     no_stream: bool,
-    api_key: Optional[str],
-    base_url: Optional[str],
     load_path: Optional[str],
 ) -> None:
-    """ChatGPT CLI — powered by PWM tokens.\n
-    Set your PWM token as the API key:\n
-      export OPENAI_API_KEY=pwm_your_key_here\n
-    The tool connects to https://physicsworldmodel.org/api/v1/exchange/openai
-    which routes your request through the PWM exchange to OpenAI.
-    """
     cfg = load_config()
     active_model = model or cfg.get("model", DEFAULT_MODEL)
     active_system = system or cfg.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
     streaming = not no_stream and cfg.get("stream", True)
-    resolved_base_url = base_url or get_base_url()
 
-    try:
-        client = build_client(api_key=api_key, base_url=resolved_base_url)
-    except ValueError as e:
-        print_error(str(e))
-        sys.exit(1)
+    if not auth.is_logged_in():
+        print_info("You are not signed in to a ChatGPT account.")
+        if not _do_login():
+            sys.exit(1)
 
     conversation: List[dict] = []
     if load_path:
@@ -220,9 +227,7 @@ def main(
     total_completion_tokens = 0
 
     PROMPT_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    session: PromptSession = PromptSession(
-        history=FileHistory(str(PROMPT_HISTORY_FILE))
-    )
+    session: PromptSession = PromptSession(history=FileHistory(str(PROMPT_HISTORY_FILE)))
 
     print_banner(active_model)
 
@@ -236,18 +241,13 @@ def main(
         if user_input is None:
             console.print("\n[info]Goodbye![/info]")
             break
-
         if not user_input:
             continue
 
         if user_input.startswith("/"):
             conversation, active_model, active_system, quit_now = _handle_command(
-                user_input,
-                conversation,
-                active_model,
-                active_system,
-                total_prompt_tokens,
-                total_completion_tokens,
+                user_input, conversation, active_model, active_system,
+                total_prompt_tokens, total_completion_tokens,
             )
             if quit_now:
                 console.print("\n[info]Goodbye![/info]")
@@ -255,24 +255,19 @@ def main(
             continue
 
         messages = build_messages(conversation, user_input, active_system)
+        reply_chunks: List[str] = []
+        usage = None
 
         try:
             print_assistant_start(active_model)
-            reply_chunks: List[str] = []
-            usage = None
-
-            if streaming:
-                for chunk, chunk_usage in stream_response(client, messages, active_model):
-                    if chunk:
-                        print_assistant_stream_chunk(chunk)
-                        reply_chunks.append(chunk)
-                    if chunk_usage:
-                        usage = chunk_usage
-                print_stream_end()
-                reply = "".join(reply_chunks)
-            else:
-                reply, usage = complete_response(client, messages, active_model)
-                print_assistant_full(reply)
+            for delta, chunk_usage in subscription.stream_chat(messages, active_model):
+                if delta:
+                    print_assistant_stream_chunk(delta)
+                    reply_chunks.append(delta)
+                if chunk_usage:
+                    usage = chunk_usage
+            print_stream_end()
+            reply = "".join(reply_chunks)
 
             conversation.append({"role": "user", "content": user_input})
             conversation.append({"role": "assistant", "content": reply})
@@ -281,25 +276,68 @@ def main(
                 total_prompt_tokens += usage.get("prompt_tokens", 0)
                 total_completion_tokens += usage.get("completion_tokens", 0)
                 print_token_usage(
-                    usage["prompt_tokens"],
-                    usage["completion_tokens"],
-                    usage["total_tokens"],
+                    usage["prompt_tokens"], usage["completion_tokens"], usage["total_tokens"]
                 )
 
-        except openai.AuthenticationError:
-            print_error(
-                "Authentication failed. Check your PWM token:\n"
-                "  export OPENAI_API_KEY=pwm_your_key_here"
-            )
-        except openai.RateLimitError:
-            print_error("Rate limit or insufficient PWM token balance.")
-        except openai.APIConnectionError as e:
-            print_error(f"Connection error: {e}")
-        except openai.APIStatusError as e:
-            print_error(f"API error {e.status_code}: {e.message}")
+        except auth.AuthError as e:
+            print_error(str(e))
+        except subscription.UpstreamError as e:
+            if e.status == 401:
+                print_error("Session expired. Run /login to sign in again.")
+            else:
+                print_error(f"API error {e.status}: {e.body[:200]}")
         except KeyboardInterrupt:
             print_stream_end()
             print_info("(interrupted)")
             if reply_chunks:
                 conversation.append({"role": "user", "content": user_input})
                 conversation.append({"role": "assistant", "content": "".join(reply_chunks)})
+
+
+# ── Click CLI ──────────────────────────────────────────────────────────────
+@click.group(
+    invoke_without_command=True,
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+@click.option("--model", "-m", default=None, help="Model to use (e.g. gpt-5.5)")
+@click.option("--system", "-s", default=None, help="System prompt")
+@click.option("--no-stream", is_flag=True, default=False, help="Disable streaming")
+@click.option("--load", "load_path", default=None, type=click.Path(exists=True),
+              help="Load conversation file")
+@click.version_option(__version__, "--version", message="chatgpt-pwm %(version)s")
+@click.pass_context
+def main(ctx, model, system, no_stream, load_path):
+    """ChatGPT CLI — powered by your ChatGPT subscription, gated by PWM.
+
+    Sign in once with your ChatGPT account:
+
+      chatgpt-pwm login
+
+    Then just run `chatgpt-pwm` to chat. Generation uses your ChatGPT plan
+    (the same subscription auth Codex uses) — no API key required.
+    """
+    if ctx.invoked_subcommand is None:
+        _run_chat(model, system, no_stream, load_path)
+
+
+@main.command()
+def login():
+    """Sign in with your ChatGPT account (OAuth)."""
+    if not _do_login():
+        sys.exit(1)
+
+
+@main.command()
+def logout():
+    """Sign out and remove stored ChatGPT tokens."""
+    if auth.logout():
+        print_info("Logged out.")
+    else:
+        print_info("No active session.")
+
+
+@main.command()
+def whoami():
+    """Show the signed-in ChatGPT account."""
+    email = auth.account_email()
+    print_info(f"Signed in as {email}" if email else "Not signed in. Run `chatgpt-pwm login`.")

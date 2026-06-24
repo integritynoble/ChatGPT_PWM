@@ -32,7 +32,7 @@ jobs:
           pyinstaller \
             --onefile \
             --name chatgpt-pwm-linux-x86_64 \
-            --hidden-import openai \
+            --hidden-import httpx \
             --hidden-import rich \
             --hidden-import click \
             --hidden-import prompt_toolkit \
@@ -64,7 +64,7 @@ jobs:
           pyinstaller \
             --onefile \
             --name chatgpt-pwm-linux-arm64 \
-            --hidden-import openai \
+            --hidden-import httpx \
             --hidden-import rich \
             --hidden-import click \
             --hidden-import prompt_toolkit \
@@ -96,7 +96,7 @@ jobs:
           pyinstaller \
             --onefile \
             --name chatgpt-pwm-macos-arm64 \
-            --hidden-import openai \
+            --hidden-import httpx \
             --hidden-import rich \
             --hidden-import click \
             --hidden-import prompt_toolkit \
@@ -128,7 +128,7 @@ jobs:
           pyinstaller `
             --onefile `
             --name chatgpt-pwm-windows-x86_64 `
-            --hidden-import openai `
+            --hidden-import httpx `
             --hidden-import rich `
             --hidden-import click `
             --hidden-import prompt_toolkit `
@@ -183,7 +183,7 @@ jobs:
           body: |
             ## ChatGPT-PWM v${{ steps.ver.outputs.version }}
 
-            ChatGPT CLI powered by PWM tokens — same experience as ChatGPT, authenticated with your PWM key.
+            ChatGPT CLI powered by your ChatGPT subscription — same experience as ChatGPT, authenticated with your ChatGPT account (OAuth, like Codex). No API key.
 
             No Python installation required — just download and run.
 
@@ -215,10 +215,10 @@ jobs:
             ### Windows (x86_64)
             Download [chatgpt-pwm-windows-x86_64.exe](https://github.com/integritynoble/ChatGPT_PWM/releases/latest/download/chatgpt-pwm-windows-x86_64.exe) and add to PATH.
 
-            ### Use with PWM exchange
+            ### Sign in and chat
             ```bash
-            export OPENAI_API_KEY=pwm_your_key_here
-            chatgpt-pwm
+            chatgpt-pwm login   # opens your browser to sign in with ChatGPT
+            chatgpt-pwm         # start chatting
             ```
           files: |
             chatgpt-pwm-linux-x86_64
