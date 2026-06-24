@@ -28,12 +28,6 @@ curl -L https://github.com/integritynoble/ChatGPT_PWM/releases/latest/download/c
   -o /usr/local/bin/chatgpt-pwm && chmod +x /usr/local/bin/chatgpt-pwm
 ```
 
-### macOS (Intel)
-```bash
-curl -L https://github.com/integritynoble/ChatGPT_PWM/releases/latest/download/chatgpt-pwm-macos-x86_64 \
-  -o /usr/local/bin/chatgpt-pwm && chmod +x /usr/local/bin/chatgpt-pwm
-```
-
 ### Linux (x86\_64)
 ```bash
 curl -L https://github.com/integritynoble/ChatGPT_PWM/releases/latest/download/chatgpt-pwm-linux-x86_64 \
