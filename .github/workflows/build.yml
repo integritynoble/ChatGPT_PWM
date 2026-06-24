@@ -108,38 +108,6 @@ jobs:
           path: dist/chatgpt-pwm-macos-arm64
           retention-days: 30
 
-  build-macos-x86_64:
-    name: Build (macOS x86_64)
-    runs-on: macos-13
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
-
-      - name: Build binary
-        run: |
-          pyinstaller \
-            --onefile \
-            --name chatgpt-pwm-macos-x86_64 \
-            --hidden-import openai \
-            --hidden-import rich \
-            --hidden-import click \
-            --hidden-import prompt_toolkit \
-            chatgpt_pwm/__main__.py
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: chatgpt-pwm-macos-x86_64
-          path: dist/chatgpt-pwm-macos-x86_64
-          retention-days: 30
-
   build-windows:
     name: Build (Windows x86_64)
     runs-on: windows-latest
@@ -178,7 +146,6 @@ jobs:
       - build-linux-x86_64
       - build-linux-arm64
       - build-macos-arm64
-      - build-macos-x86_64
       - build-windows
     runs-on: ubuntu-latest
     permissions:
@@ -195,9 +162,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: chatgpt-pwm-macos-arm64
-      - uses: actions/download-artifact@v4
-        with:
-          name: chatgpt-pwm-macos-x86_64
       - uses: actions/download-artifact@v4
         with:
           name: chatgpt-pwm-windows-x86_64
@@ -236,12 +200,6 @@ jobs:
             xattr -d com.apple.quarantine /usr/local/bin/chatgpt-pwm
             ```
 
-            ### macOS (Intel)
-            ```bash
-            curl -L https://github.com/integritynoble/ChatGPT_PWM/releases/latest/download/chatgpt-pwm-macos-x86_64 \
-              -o /usr/local/bin/chatgpt-pwm && chmod +x /usr/local/bin/chatgpt-pwm
-            ```
-
             ### Linux (x86_64)
             ```bash
             curl -L https://github.com/integritynoble/ChatGPT_PWM/releases/latest/download/chatgpt-pwm-linux-x86_64 \
@@ -266,7 +224,6 @@ jobs:
             chatgpt-pwm-linux-x86_64
             chatgpt-pwm-linux-arm64
             chatgpt-pwm-macos-arm64
-            chatgpt-pwm-macos-x86_64
             chatgpt-pwm-windows-x86_64.exe
           draft: false
           prerelease: false
