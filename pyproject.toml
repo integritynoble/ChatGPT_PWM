@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chatgpt-pwm"
+version = "1.0.0"
+description = "ChatGPT CLI powered by PWM tokens"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "integritynoble"}
+]
+keywords = ["chatgpt", "openai", "pwm", "cli", "ai"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "openai>=1.30.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "prompt-toolkit>=3.0.0",
+]
+
+[project.scripts]
+chatgpt-pwm = "chatgpt_pwm.cli:main"
+cgpt = "chatgpt_pwm.cli:main"
+
+[project.urls]
+Homepage = "https://physicsworldmodel.org"
+Repository = "https://github.com/integritynoble/ChatGPT_PWM"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["chatgpt_pwm*"]
