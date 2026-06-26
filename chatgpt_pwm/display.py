@@ -57,6 +57,8 @@ def print_help(model: str, system_prompt: str) -> None:
   [command]/login[/command]           Sign in with your ChatGPT account
   [command]/logout[/command]          Sign out
   [command]/whoami[/command]          Show signed-in account
+  [command]/balance[/command]         Show your PWM token balance
+  [command]/pwm-key [key][/command]   Set the PWM key used for billing
   [command]/quit[/command]            Exit
 
 [bold]Tips[/bold]
@@ -96,6 +98,15 @@ def print_token_usage(prompt: int, completion: int, total: int) -> None:
     console.print(
         f"  [token_info]tokens: {prompt} prompt + {completion} completion = {total} total[/token_info]"
     )
+
+
+def print_billing(amount: float, balance: Optional[float]) -> None:
+    if balance is not None:
+        console.print(
+            f"  [token_info]PWM: −{amount:.4f}  ·  balance {balance:.2f}[/token_info]"
+        )
+    else:
+        console.print(f"  [token_info]PWM: −{amount:.4f}[/token_info]")
 
 
 def print_system_prompt(prompt: str) -> None:

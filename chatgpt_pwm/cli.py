@@ -10,7 +10,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style as PTStyle
 
-from . import __version__, auth, subscription
+from . import __version__, auth, billing, subscription
 from .config import (
     AVAILABLE_MODELS,
     DEFAULT_MODEL,
@@ -24,6 +24,7 @@ from .display import (
     print_assistant_start,
     print_assistant_stream_chunk,
     print_banner,
+    print_billing,
     print_error,
     print_help,
     print_info,
@@ -164,6 +165,32 @@ def _handle_command(
         email = auth.account_email()
         print_info(f"Signed in as {email}" if email else "Not signed in.")
 
+    elif verb == "/balance":
+        key = billing.get_pwm_key()
+        if not key:
+            print_info("No PWM key set. Use /pwm-key to add one.")
+        else:
+            res = billing.check_balance(key)
+            if res.valid and res.balance:
+                print_info(f"PWM balance: {res.balance:.2f}")
+            elif res.valid:
+                print_info("PWM balance unavailable (platform unreachable).")
+            else:
+                print_error(res.reason)
+
+    elif verb == "/pwm-key":
+        if arg:
+            res = billing.check_balance(arg.strip())
+            if res.valid:
+                billing.set_pwm_key(arg.strip())
+                print_info(
+                    f"PWM key saved. Balance: {res.balance:.2f}" if res.balance else "PWM key saved."
+                )
+            else:
+                print_error(res.reason)
+        else:
+            _ensure_pwm_key()
+
     elif verb == "/copy":
         last_reply = next(
             (m["content"] for m in reversed(conversation) if m["role"] == "assistant"),
@@ -202,6 +229,27 @@ def _do_login() -> bool:
         return False
 
 
+def _ensure_pwm_key() -> bool:
+    """Prompt for and validate a PWM key for billing. Returns True if usable."""
+    try:
+        key = input("Enter your PWM key (pwm_…): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return False
+    if not key:
+        return False
+    res = billing.check_balance(key)
+    if not res.valid:
+        print_error(res.reason or "Invalid PWM key.")
+        return False
+    billing.set_pwm_key(key)
+    if res.balance:
+        print_info(f"PWM key saved. Balance: {res.balance:.2f} PWM")
+    else:
+        print_info("PWM key saved.")
+    return True
+
+
 def _run_chat(
     model: Optional[str],
     system: Optional[str],
@@ -216,6 +264,17 @@ def _run_chat(
     if not auth.is_logged_in():
         print_info("You are not signed in to a ChatGPT account.")
         if not _do_login():
+            sys.exit(1)
+
+    # PWM billing gate: usage is metered against your PWM balance.
+    if not billing.has_pwm_key():
+        print_info("A PWM key is required — usage is billed to your PWM balance.")
+        if not _ensure_pwm_key():
+            sys.exit(1)
+    else:
+        res = billing.check_balance(billing.get_pwm_key())
+        if not res.valid:
+            print_error(f"{res.reason} Set a new key with: chatgpt-pwm pwm-key")
             sys.exit(1)
 
     conversation: List[dict] = []
@@ -278,6 +337,14 @@ def _run_chat(
                 print_token_usage(
                     usage["prompt_tokens"], usage["completion_tokens"], usage["total_tokens"]
                 )
+                key = billing.get_pwm_key()
+                if key:
+                    billed, bal_after, amount = billing.charge(
+                        key, active_model,
+                        usage["prompt_tokens"], usage["completion_tokens"],
+                    )
+                    if billed:
+                        print_billing(amount, bal_after)
 
         except auth.AuthError as e:
             print_error(str(e))
@@ -341,3 +408,35 @@ def whoami():
     """Show the signed-in ChatGPT account."""
     email = auth.account_email()
     print_info(f"Signed in as {email}" if email else "Not signed in. Run `chatgpt-pwm login`.")
+
+
+@main.command("pwm-key")
+@click.argument("key", required=False)
+def pwm_key(key):
+    """Set the PWM key used to bill usage (prompts if not given)."""
+    if key:
+        res = billing.check_balance(key.strip())
+        if not res.valid:
+            print_error(res.reason or "Invalid PWM key.")
+            sys.exit(1)
+        billing.set_pwm_key(key.strip())
+        print_info(f"PWM key saved. Balance: {res.balance:.2f} PWM" if res.balance else "PWM key saved.")
+    else:
+        if not _ensure_pwm_key():
+            sys.exit(1)
+
+
+@main.command()
+def balance():
+    """Show your PWM token balance."""
+    key = billing.get_pwm_key()
+    if not key:
+        print_info("No PWM key set. Run `chatgpt-pwm pwm-key`.")
+        return
+    res = billing.check_balance(key)
+    if res.valid and res.balance:
+        print_info(f"PWM balance: {res.balance:.2f}")
+    elif res.valid:
+        print_info("PWM balance unavailable (platform unreachable).")
+    else:
+        print_error(res.reason)
