@@ -2,8 +2,8 @@
 
 ChatGPT CLI powered by your **ChatGPT subscription** — the same conversation
 experience as ChatGPT from OpenAI, running in your terminal. Generation uses your
-ChatGPT plan via OAuth (the same subscription auth Codex uses), so there is **no
-API key and no per-token billing**.
+ChatGPT plan via OAuth (the same subscription auth Codex uses) — **no OpenAI API
+key** — so it's the same ChatGPT, right in your terminal.
 
 ## Features
 
