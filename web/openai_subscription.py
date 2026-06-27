@@ -51,6 +51,8 @@ _MODEL_MAP = {
     "gpt-5.5": "gpt-5.5",
     "gpt-5.4": "gpt-5.4",
     "gpt-5.4-mini": "gpt-5.4-mini",
+    # "Thinking" = GPT-5.5 with higher reasoning effort
+    "gpt-5.5-thinking": "gpt-5.5",
 }
 
 
@@ -243,6 +245,9 @@ def _build_payload(messages: List[dict], model: str, web_search: bool = False,
         tools, tool_choice = [{"type": "web_search"}], {"type": "web_search"}
     else:
         tools, tool_choice = [], "auto"
+    reasoning = {"summary": "auto"}
+    if str(model).endswith("-thinking"):
+        reasoning["effort"] = "high"
     return {
         "model": _MODEL_MAP.get(model, DEFAULT_MODEL),
         "instructions": instructions,
@@ -252,7 +257,7 @@ def _build_payload(messages: List[dict], model: str, web_search: bool = False,
         "parallel_tool_calls": False,
         "store": False,
         "stream": True,
-        "reasoning": {"summary": "auto"},   # surface a "Thinking" summary when the model reasons
+        "reasoning": reasoning,   # "Thinking" summary; higher effort for the Thinking model
         "prompt_cache_key": str(uuid.uuid4()),
     }
 
