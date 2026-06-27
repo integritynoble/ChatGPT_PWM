@@ -194,6 +194,9 @@
        color:var(--text-3);transition:all .15s;position:relative}
   .act:hover{background:var(--hover);color:var(--text)}
   .act.ok{color:#19c37d}
+  .pager{display:flex;align-items:center;margin-right:2px}
+  .pnum{font-size:12px;color:var(--text-3);min-width:30px;text-align:center}
+  .pager .act{width:24px;height:24px;font-size:16px;line-height:1}
 
   /* streaming cursor */
   .cursor::after{content:'';display:inline-block;width:9px;height:18px;background:var(--text);
@@ -253,7 +256,8 @@
                display:flex;align-items:center;justify-content:space-between;gap:12px}
   .danger-zone span{font-size:13px;color:var(--text-2)}
 
-  #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--danger);color:#fff;
+  #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#2f2f2f;color:#fff;
+         border:1px solid rgba(255,255,255,.12);
          padding:11px 20px;border-radius:10px;font-size:14px;display:none;z-index:200;max-width:80%;
          box-shadow:0 8px 24px rgba(0,0,0,.4)}
 
@@ -338,6 +342,9 @@
         <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
       </button>
       <div class="topbar-spacer"></div>
+      <button class="icon-btn" id="share-btn" title="Share" aria-label="Share" onclick="shareChat()" style="display:none">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+      </button>
       <button class="top-avatar" id="top-avatar" onclick="toggleAccountMenu(event)" aria-label="Account"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v3h16v-3c0-2.76-3.58-5-8-5Z"/></svg></button>
     </header>
 
@@ -360,7 +367,10 @@
           </button>
           <textarea id="input" rows="1" placeholder="Ask anything"
                     onkeydown="onKey(event)" oninput="autosize(this)"></textarea>
-          <button type="submit" id="send" disabled aria-label="Send">
+          <button type="button" id="mic" class="round" title="Dictate" aria-label="Dictate" style="display:none" onclick="toggleDictate()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+          </button>
+          <button type="submit" id="send" disabled aria-label="Send" style="display:none">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
           </button>
         </form>
@@ -376,10 +386,10 @@
 <!-- PWM key / settings modal -->
 <div class="overlay" id="settings-overlay">
   <div class="modal">
-    <h2 id="settings-title">Connect your PWM account</h2>
-    <p id="settings-desc">Enter your PWM key to use ChatGPT. Usage is billed to your PWM balance. Your key is stored only in this browser.</p>
+    <h2 id="settings-title">Log in to ChatGPT</h2>
+    <p id="settings-desc">Enter your access key to start chatting. It's stored only in this browser.</p>
 
-    <label for="key-input">PWM key</label>
+    <label for="key-input">Access key</label>
     <input id="key-input" type="password" placeholder="sk-pwm-…" autocomplete="off" spellcheck="false">
     <div class="balance" id="balance-line"></div>
 
@@ -455,6 +465,10 @@ const MODELS=[
 ];
 let currentModel = localStorage.getItem('cg_model') || 'gpt-5.5';
 let convos = JSON.parse(localStorage.getItem('cg_convos')||'[]');
+// migrate legacy assistant messages (flat content) -> versioned variants
+convos.forEach(c=>(c.messages||[]).forEach(m=>{
+  if(m.role==='assistant' && !m.variants){ m.variants=[{content:m.content||'', ts:m.ts}]; m.vi=0; }
+}));
 let activeId = null;
 let generating = false;
 let abortCtl = null;
@@ -467,6 +481,7 @@ const sendBtn = $('#send');
 
 function getKey(){ return localStorage.getItem('cg_pwm_key')||''; }
 function now(){ return Date.now(); }
+function msgText(m){ return m.role==='assistant' ? ((m.variants&&m.variants[m.vi]&&m.variants[m.vi].content)||'') : (m.content||''); }
 
 // ── Theme ───────────────────────────────────────────────────────────────
 function resolveTheme(pref){
@@ -537,7 +552,9 @@ function ensureConvo(){
 }
 
 function setLanding(){
-  document.body.classList.toggle('landing', activeMsgs().length===0);
+  const empty = activeMsgs().length===0;
+  document.body.classList.toggle('landing', empty);
+  const sb=$('#share-btn'); if(sb) sb.style.display = empty ? 'none' : 'flex';
 }
 
 function dateGroup(ts){
@@ -555,7 +572,7 @@ function renderChatList(){
   const q=(($('#search-input')&&$('#search-input').value)||'').toLowerCase().trim();
   let shown=convos.slice().sort((a,b)=>b.ts-a.ts);
   if(q) shown=shown.filter(c=>(c.title||'').toLowerCase().includes(q) ||
-      (c.messages||[]).some(m=>(m.content||'').toLowerCase().includes(q)));
+      (c.messages||[]).some(m=>msgText(m).toLowerCase().includes(q)));
   if(!shown.length){
     const e=document.createElement('div'); e.className='empty-list';
     e.textContent = q ? 'No chats found.' : 'No chats yet.';
@@ -649,16 +666,34 @@ function renderMessage(m, idx){
     msg.querySelector('.act-edit').onclick=()=>startEdit(idx, msg);
     msg.querySelector('.act-ucopy').onclick=(e)=>copyBtn(e.currentTarget, m.content);
   } else {
+    const content = msgText(m);
+    const isLast = idx===activeMsgs().length-1;
+    const nver = (m.variants&&m.variants.length)||1;
+    const pager = (nver>1 && isLast)
+      ? `<span class="pager"><button class="act act-prev" title="Previous">‹</button><span class="pnum">${m.vi+1}/${nver}</span><button class="act act-next" title="Next">›</button></span>` : '';
     msg.innerHTML=`<div class="col"><div class="markdown"></div>
         <div class="actions">
+          ${pager}
           <button class="act act-copy" title="Copy"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+          <button class="act act-good" title="Good response"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg></button>
+          <button class="act act-bad" title="Bad response"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg></button>
+          <button class="act act-read" title="Read aloud"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>
           <button class="act act-regen" title="Regenerate"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg></button>
         </div>
       </div>`;
     const md=msg.querySelector('.markdown');
-    if(m.content){ md.innerHTML=renderMarkdown(m.content); enhance(md); }
-    msg.querySelector('.act-copy').onclick=(e)=>copyBtn(e.currentTarget, m.content);
-    msg.querySelector('.act-regen').onclick=(e)=>{e.stopPropagation();regenMenu(e.currentTarget);};
+    if(content){ md.innerHTML=renderMarkdown(content); enhance(md); }
+    msg.querySelector('.act-copy').onclick=(e)=>copyBtn(e.currentTarget, content);
+    if(m.rating==='up') msg.querySelector('.act-good').classList.add('ok');
+    if(m.rating==='down') msg.querySelector('.act-bad').classList.add('ok');
+    msg.querySelector('.act-good').onclick=()=>{ m.rating=m.rating==='up'?null:'up'; persist(); renderThread(); };
+    msg.querySelector('.act-bad').onclick=()=>{ m.rating=m.rating==='down'?null:'down'; persist(); renderThread(); };
+    msg.querySelector('.act-read').onclick=(e)=>readAloud(content, e.currentTarget);
+    msg.querySelector('.act-regen').onclick=(e)=>{e.stopPropagation();regenMenu(e.currentTarget, idx);};
+    if(pager){
+      msg.querySelector('.act-prev').onclick=()=>{ if(m.vi>0){ m.vi--; persist(); renderThread(); } };
+      msg.querySelector('.act-next').onclick=()=>{ if(m.vi<nver-1){ m.vi++; persist(); renderThread(); } };
+    }
   }
   thread.appendChild(msg);
   return msg;
@@ -688,13 +723,14 @@ function startEdit(idx, msgEl){
     const c=activeConvo(); if(!c) return;
     c.messages=c.messages.slice(0,idx);          // truncate at the edited turn
     c.messages.push({role:'user',content:v,ts:now()});
-    persist(); renderThread(); setLanding(); scrollBottom(true);
+    c.messages.push({role:'assistant',variants:[{content:'',ts:now()}],vi:0});
+    persist();
     streamReply();
   };
   ta.onkeydown=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); grp.querySelector('[data-act="send"]').click(); } };
 }
 
-function regenMenu(anchor){
+function regenMenu(anchor, idx){
   if(generating) return;
   const exists=document.querySelector('#regen-menu.open'); closeAllPops(); if(exists) return;
   const m=$('#regen-menu');
@@ -707,16 +743,25 @@ function regenMenu(anchor){
   const r=anchor.getBoundingClientRect();
   m.style.top=(r.bottom+4)+'px'; m.style.left=Math.min(r.left,window.innerWidth-240)+'px';
   m.classList.add('open');
-  m.querySelectorAll('[data-id]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();closeAllPops();regenerate(b.dataset.id);});
+  m.querySelectorAll('[data-id]').forEach(b=>b.onclick=(e)=>{e.stopPropagation();closeAllPops();regenerate(b.dataset.id, idx);});
 }
 
-function regenerate(model){
+function regenerate(model, idx){
   if(generating) return;
   const c=activeConvo(); if(!c) return;
-  let i=c.messages.length-1;
-  while(i>=0 && c.messages[i].role==='assistant') i--;
-  c.messages=c.messages.slice(0,i+1);
-  persist(); renderThread(); scrollBottom(true);
+  if(idx==null){ idx=c.messages.length-1; while(idx>=0 && c.messages[idx].role!=='assistant') idx--; }
+  if(idx<0) return;
+  if(idx===c.messages.length-1){
+    // regenerate the last answer -> add a new sibling version (no truncation)
+    const m=c.messages[idx];
+    m.variants=m.variants||[{content:m.content||'',ts:m.ts}];
+    m.variants.push({content:'',ts:now()}); m.vi=m.variants.length-1;
+  } else {
+    // older message -> drop it and everything after, then a fresh answer
+    c.messages=c.messages.slice(0,idx);
+    c.messages.push({role:'assistant',variants:[{content:'',ts:now()}],vi:0});
+  }
+  persist(); scrollBottom(true);
   streamReply(model||currentModel);
 }
 
@@ -736,19 +781,60 @@ scroll.addEventListener('scroll',()=>{
 });
 
 // ── Compose / send ──────────────────────────────────────────────────────
-function autosize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px';
-  sendBtn.disabled = generating ? false : !el.value.trim(); }
+const micBtn=$('#mic');
+const micSupported = !!(window.SpeechRecognition||window.webkitSpeechRecognition);
+
+function updateComposerButtons(){
+  const hasText=!!input.value.trim();
+  if(generating){ sendBtn.style.display='flex'; sendBtn.disabled=false; if(micBtn) micBtn.style.display='none'; return; }
+  sendBtn.style.display = hasText ? 'flex' : 'none';
+  sendBtn.disabled = !hasText;
+  if(micBtn) micBtn.style.display = (!hasText && micSupported) ? 'flex' : 'none';
+}
+function autosize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px'; updateComposerButtons(); }
 function onKey(e){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); onSend(e); } }
 
 function setGenerating(on){
   generating=on;
   if(on){
-    sendBtn.disabled=false;
     sendBtn.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>';
   } else {
     sendBtn.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
-    sendBtn.disabled=!input.value.trim();
   }
+  updateComposerButtons();
+}
+
+// Dictation (Web Speech API; best-effort, mic only shown when supported)
+let rec=null, reccing=false;
+function toggleDictate(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR) return;
+  if(reccing){ try{rec&&rec.stop();}catch(e){} return; }
+  rec=new SR(); rec.lang='en-US'; rec.interimResults=true; rec.continuous=true;
+  const base=input.value;
+  rec.onresult=(e)=>{ let t=''; for(let i=e.resultIndex;i<e.results.length;i++) t+=e.results[i][0].transcript; input.value=(base?base+' ':'')+t; autosize(input); };
+  rec.onend=()=>{ reccing=false; if(micBtn) micBtn.classList.remove('ok'); updateComposerButtons(); };
+  rec.onerror=()=>{ reccing=false; if(micBtn) micBtn.classList.remove('ok'); };
+  try{ rec.start(); reccing=true; if(micBtn) micBtn.classList.add('ok'); }catch(e){}
+}
+
+// Read aloud (Web Speech synthesis)
+let speakBtn=null;
+function readAloud(text, btn){
+  const synth=window.speechSynthesis; if(!synth) return;
+  const wasThis = synth.speaking && speakBtn===btn;
+  if(synth.speaking){ synth.cancel(); if(speakBtn) speakBtn.classList.remove('ok'); speakBtn=null; if(wasThis) return; }
+  const plain=(text||'').replace(/```[\s\S]*?```/g,' ').replace(/[#*`_>~\[\]()]/g,'');
+  const u=new SpeechSynthesisUtterance(plain);
+  u.onend=()=>{ btn.classList.remove('ok'); speakBtn=null; };
+  try{ synth.speak(u); btn.classList.add('ok'); speakBtn=btn; }catch(e){}
+}
+
+// Share the current conversation
+function shareChat(){
+  const c=activeConvo(); if(!c||!c.messages.length) return;
+  const text=c.messages.map(m=> (m.role==='user'?'You: ':'ChatGPT: ')+msgText(m)).join('\n\n');
+  if(navigator.share){ navigator.share({title:c.title||'ChatGPT', text}).catch(()=>{}); }
+  else { navigator.clipboard.writeText(text); showToast('Conversation copied to clipboard'); }
 }
 
 async function onSend(e){
@@ -760,19 +846,25 @@ async function onSend(e){
   input.value=''; autosize(input);
   const c=ensureConvo();
   c.messages.push({role:'user',content:text,ts:now()});
+  c.messages.push({role:'assistant',variants:[{content:'',ts:now()}],vi:0});
   c.ts=now();
   if(!c.title) c.title=text.replace(/\s+/g,' ').trim().slice(0,48);
-  persist(); renderThread(); renderChatList(); setLanding(); scrollBottom(true);
+  persist(); renderChatList();
   streamReply();
 }
 
 async function streamReply(model){
   const c=activeConvo(); if(!c) return;
   model = model || currentModel;
-  const sendMsgs = c.messages.map(m=>({role:m.role,content:m.content}));
+  // contract: the LAST message is an assistant whose current variant is the empty target
+  let target=c.messages[c.messages.length-1];
+  if(!target || target.role!=='assistant'){ target={role:'assistant',variants:[{content:'',ts:now()}],vi:0}; c.messages.push(target); }
+  const sendMsgs = c.messages.slice(0, c.messages.length-1).map(m=>({role:m.role, content:msgText(m)}));
 
-  // assistant placeholder + thinking dots
-  const msgEl=renderMessage({role:'assistant',content:'',ts:now()}, c.messages.length);
+  // render thread (shows empty target) then stream into the last assistant element
+  renderThread(); setLanding();
+  const allA=thread.querySelectorAll('.msg.assistant');
+  const msgEl=allA[allA.length-1];
   const md=msgEl.querySelector('.markdown');
   md.innerHTML='<div class="thinking"><span></span><span></span><span></span></div>';
   markLast(); scrollBottom(true);
@@ -816,10 +908,9 @@ async function streamReply(model){
     if(raf) cancelAnimationFrame(raf);
     md.classList.remove('cursor');
     if(full.trim()){
-      c.messages.push({role:'assistant',content:full,ts:now()});
+      target.variants[target.vi].content=full; target.variants[target.vi].ts=now();
       c.ts=now();
-      persist(); renderChatList();
-      renderThread();   // rebind final action handlers + render code blocks
+      persist(); renderChatList(); renderThread();
     } else {
       md.innerHTML='<span style="color:var(--text-3)">No response.</span>';
     }
@@ -838,10 +929,10 @@ function openSettings(){
 }
 function openSettingsModal(){
   const full = settingsMode==='full';
-  $('#settings-title').textContent = full ? 'Settings' : 'Connect your PWM account';
+  $('#settings-title').textContent = full ? 'Settings' : 'Log in to ChatGPT';
   $('#settings-desc').textContent = full
-    ? 'Manage your PWM key, appearance, and chats. Everything is stored only in this browser.'
-    : 'Enter your PWM key to use ChatGPT. Usage is billed to your PWM balance. Your key is stored only in this browser.';
+    ? 'Manage your account, appearance, and chats. Everything is stored only in this browser.'
+    : "Enter your access key to start chatting. It's stored only in this browser.";
   $('#settings-extra').style.display = full ? 'block' : 'none';
   $('#key-input').value=getKey();
   const sel=$('#model-select');
@@ -907,6 +998,7 @@ function showToast(msg){
   applyTheme();
   pickModel(currentModel);
   renderThread(); renderChatList(); updateAccount(); setLanding();
+  updateComposerButtons();
   if(!getKey()) openKeyModal();
   input.focus();
 })();
