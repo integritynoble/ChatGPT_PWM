@@ -6,7 +6,8 @@
 <title>ChatGPT</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23fff' d='M22.28 9.82a5.98 5.98 0 0 0-.52-4.91 6.05 6.05 0 0 0-6.51-2.9A6.07 6.07 0 0 0 4.98 4.18a5.98 5.98 0 0 0-4 2.9 6.05 6.05 0 0 0 .75 7.1 5.98 5.98 0 0 0 .51 4.91 6.05 6.05 0 0 0 6.51 2.9A5.98 5.98 0 0 0 13.26 24a6.06 6.06 0 0 0 5.77-4.21 5.99 5.99 0 0 0 4-2.9 6.06 6.06 0 0 0-.75-7.07z'/%3E%3C/svg%3E">
 
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+<link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" disabled>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -44,6 +45,7 @@
   ::-webkit-scrollbar-track{background:transparent}
 
   #app{display:flex;height:100dvh;overflow:hidden}
+  #sb-backdrop{display:none}
 
   /* ── Sidebar ───────────────────────────────────────── */
   #sidebar{width:var(--sb-w);background:var(--sidebar);display:flex;flex-direction:column;
@@ -296,6 +298,7 @@
     /* mobile: collapsed = fully off-canvas (no rail) */
     #sidebar.collapsed{width:var(--sb-w);margin-left:calc(var(--sb-w) * -1)}
     #sidebar.collapsed .sb-top{flex-direction:row;align-items:center;padding:10px 8px 4px}
+    #sidebar:not(.collapsed) ~ #sb-backdrop{display:block;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:55}
     .menu-toggle{display:flex}
     .msg.user .grp{max-width:88%}
   }
@@ -431,6 +434,7 @@
       </div>
     </div>
   </main>
+  <div id="sb-backdrop" onclick="toggleSidebar()"></div>
 </div>
 
 <!-- regenerate model menu -->
@@ -557,7 +561,11 @@ function resolveTheme(pref){
 }
 function applyTheme(){
   const pref = localStorage.getItem('cg_theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', resolveTheme(pref));
+  const t = resolveTheme(pref);
+  document.documentElement.setAttribute('data-theme', t);
+  const dl=$('#hljs-dark'), ll=$('#hljs-light');     // theme-matched code highlighting
+  if(dl) dl.disabled = (t==='light');
+  if(ll) ll.disabled = (t!=='light');
   const lbl = $('#theme-label');
   if(lbl) lbl.textContent = 'Theme: ' + pref.charAt(0).toUpperCase()+pref.slice(1);
   document.querySelectorAll('#theme-seg button').forEach(b=>b.classList.toggle('sel', b.dataset.theme===pref));
@@ -668,9 +676,8 @@ function renderChatList(){
   if(q) shown=shown.filter(c=>(c.title||'').toLowerCase().includes(q) ||
       (c.messages||[]).some(m=>msgText(m).toLowerCase().includes(q)));
   if(!shown.length){
-    const e=document.createElement('div'); e.className='empty-list';
-    e.textContent = q ? 'No chats found.' : 'No chats yet.';
-    list.appendChild(e); return;
+    if(q){ const e=document.createElement('div'); e.className='empty-list'; e.textContent='No chats found.'; list.appendChild(e); }
+    return;
   }
   let lastGroup=null;
   shown.forEach(c=>{
@@ -1168,6 +1175,7 @@ function showToast(msg){
   pickModel(currentModel);
   renderThread(); renderChatList(); updateAccount(); setLanding();
   updateComposerButtons();
+  if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');
   if(!getKey()) openKeyModal();
   input.focus();
 })();
