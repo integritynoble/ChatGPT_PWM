@@ -11,6 +11,7 @@ No token material is ever logged.
 from __future__ import annotations
 
 import base64
+import datetime
 import json
 import os
 import time
@@ -216,9 +217,22 @@ def _to_responses_input(messages: List[dict]) -> tuple[str, list]:
     return instructions, items
 
 
+def _default_instructions() -> str:
+    """A ChatGPT-style system prompt so answers match chatgpt.com's tone/formatting."""
+    today = datetime.date.today().isoformat()
+    return (
+        "You are ChatGPT, a large language model trained by OpenAI. "
+        f"The current date is {today}. "
+        "Respond helpfully, accurately, and conversationally. Use Markdown formatting—"
+        "headings, bold, bulleted/numbered lists, tables, and fenced code blocks with a "
+        "language tag—when it improves clarity. Keep answers concise unless the user asks "
+        "for depth."
+    )
+
+
 def _build_payload(messages: List[dict], model: str, web_search: bool = False) -> dict:
     instructions, items = _to_responses_input(messages)
-    instructions = instructions or "You are a helpful assistant."
+    instructions = instructions or _default_instructions()
     if web_search:
         instructions += ("\n\nYou can search the web. Search when it helps, and cite the "
                          "sources you use with inline citations.")
