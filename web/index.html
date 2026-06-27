@@ -239,6 +239,17 @@
   #send:disabled{background:#8886;color:#fff8;cursor:not-allowed}
   #disclaimer{text-align:center;font-size:12px;color:var(--text-3);padding:10px 0 2px}
 
+  /* attachments */
+  #attach-row{display:flex;flex-wrap:wrap;gap:8px;padding:2px 4px 8px}
+  #attach-row:empty{display:none}
+  .chip{display:flex;align-items:center;gap:7px;background:var(--hover);border:1px solid var(--border);
+        border-radius:10px;padding:7px 10px;font-size:13px;max-width:220px}
+  .chip svg{flex-shrink:0;color:var(--text-2)}
+  .chip .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chip .x{cursor:pointer;color:var(--text-3);font-size:12px;line-height:1}
+  .chip .x:hover{color:var(--text)}
+  .bubble-atts{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-bottom:6px}
+
   /* scroll-to-bottom */
   #to-bottom{position:absolute;left:50%;transform:translateX(-50%);bottom:96px;width:34px;height:34px;
              border-radius:50%;background:var(--composer);border:1px solid var(--border);
@@ -402,8 +413,9 @@
     <div id="dock">
       <div id="greeting"><h1>What can I help with?</h1></div>
       <div id="composer-inner">
+        <div id="attach-row"></div>
         <form id="composer" onsubmit="onSend(event)">
-          <button type="button" class="round" title="Add" aria-label="Add">
+          <button type="button" class="round" id="plus-btn" title="Add" aria-label="Add" onclick="togglePlusMenu(event)">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
           <textarea id="input" rows="1" placeholder="Ask anything"
@@ -423,6 +435,16 @@
 
 <!-- regenerate model menu -->
 <div class="pop" id="regen-menu"></div>
+
+<!-- composer "+" add menu -->
+<input type="file" id="file-input" multiple style="display:none" onchange="onFiles(this)"
+  accept=".txt,.md,.markdown,.csv,.tsv,.json,.js,.jsx,.ts,.tsx,.py,.java,.c,.cpp,.h,.hpp,.go,.rs,.rb,.php,.html,.css,.scss,.xml,.yml,.yaml,.toml,.ini,.cfg,.log,.sh,.bash,.sql,text/*">
+<div class="pop" id="plus-menu">
+  <button class="menu-row" onclick="document.getElementById('file-input').click()">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+    Add photos &amp; files
+  </button>
+</div>
 
 <!-- PWM key / settings modal -->
 <div class="overlay" id="settings-overlay">
@@ -514,6 +536,7 @@ let activeId = null;
 let generating = false;
 let abortCtl = null;
 let currentView = 'chat';
+let attachments = [];   // staged text-file attachments for the next message
 
 const $ = s=>document.querySelector(s);
 const thread = $('#thread');
@@ -579,7 +602,35 @@ function pickModel(id){
   closeAllPops();
 }
 function toggleAccountMenu(e){ e.stopPropagation(); const open=$('#account-menu').classList.contains('open'); closeAllPops(); if(!open){ refreshAccountHead(); $('#account-menu').classList.add('open'); } }
+function togglePlusMenu(e){
+  e.stopPropagation();
+  const open=$('#plus-menu').classList.contains('open'); closeAllPops(); if(open) return;
+  const m=$('#plus-menu'), r=e.currentTarget.getBoundingClientRect();
+  m.style.left=r.left+'px'; m.style.top='auto'; m.style.bottom=(window.innerHeight-r.top+8)+'px';
+  m.classList.add('open');
+}
 document.addEventListener('click',()=>closeAllPops());
+
+// ── Attachments (text/code files folded into the next message) ───────────
+function onFiles(inp){
+  const files=[...inp.files]; inp.value=''; closeAllPops();
+  files.forEach(f=>{
+    const r=new FileReader();
+    r.onload=()=>{ attachments.push({name:f.name, content:String(r.result||'').slice(0,100000)}); renderAttachments(); };
+    r.onerror=()=>showToast('Could not read '+f.name);
+    r.readAsText(f);
+  });
+}
+function renderAttachments(){
+  const row=$('#attach-row'); row.innerHTML='';
+  attachments.forEach((a,i)=>{
+    const c=document.createElement('div'); c.className='chip';
+    c.innerHTML=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="nm">${escapeHtml(a.name)}</span><span class="x">✕</span>`;
+    c.querySelector('.x').onclick=()=>{ attachments.splice(i,1); renderAttachments(); };
+    row.appendChild(c);
+  });
+  updateComposerButtons();
+}
 
 // ── Conversations ───────────────────────────────────────────────────────
 function activeConvo(){ return convos.find(c=>c.id===activeId); }
@@ -732,7 +783,9 @@ function renderMessage(m, idx){
     const ucontent=msgText(m);
     const unver=(m.variants&&m.variants.length)||1;
     const upager=(unver>1)?`<span class="pager"><button class="act act-uprev" title="Previous">‹</button><span class="pnum">${m.vi+1}/${unver}</span><button class="act act-unext" title="Next">›</button></span>`:'';
+    const attHtml=(m.atts&&m.atts.length)?`<div class="bubble-atts">`+m.atts.map(a=>`<span class="chip"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="nm">${escapeHtml(a.name)}</span></span>`).join('')+`</div>`:'';
     msg.innerHTML=`<div class="grp">
+        ${attHtml}
         <div class="bubble"></div>
         <div class="actions">
           ${upager}
@@ -740,7 +793,7 @@ function renderMessage(m, idx){
           <button class="act act-ucopy" title="Copy"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
         </div>
       </div>`;
-    msg.querySelector('.bubble').textContent=ucontent;
+    const bub=msg.querySelector('.bubble'); bub.textContent=ucontent; if(!ucontent) bub.style.display='none';
     msg.querySelector('.act-edit').onclick=()=>startEdit(idx, msg);
     msg.querySelector('.act-ucopy').onclick=(e)=>copyBtn(e.currentTarget, ucontent);
     if(upager){
@@ -891,7 +944,7 @@ const micBtn=$('#mic');
 const micSupported = !!(window.SpeechRecognition||window.webkitSpeechRecognition);
 
 function updateComposerButtons(){
-  const hasText=!!input.value.trim();
+  const hasText=!!input.value.trim() || attachments.length>0;
   if(generating){ sendBtn.style.display='flex'; sendBtn.disabled=false; if(micBtn) micBtn.style.display='none'; return; }
   sendBtn.style.display = hasText ? 'flex' : 'none';
   sendBtn.disabled = !hasText;
@@ -947,14 +1000,16 @@ async function onSend(e){
   if(e) e.preventDefault();
   if(generating){ if(abortCtl) abortCtl.abort(); return; }
   const text=input.value.trim();
-  if(!text) return;
+  if(!text && !attachments.length) return;
   if(!getKey()){ openKeyModal(); return; }
+  const atts=attachments.slice(); attachments=[]; renderAttachments();
   input.value=''; autosize(input);
   const c=ensureConvo();
-  c.messages.push({role:'user',content:text,ts:now()});
+  const um={role:'user',content:text,ts:now()}; if(atts.length) um.atts=atts;
+  c.messages.push(um);
   c.messages.push({role:'assistant',variants:[{content:'',ts:now()}],vi:0});
   c.ts=now();
-  if(!c.title) c.title=text.replace(/\s+/g,' ').trim().slice(0,48);
+  if(!c.title){ const seed=text || (atts[0]&&atts[0].name) || 'New chat'; c.title=seed.replace(/\s+/g,' ').trim().slice(0,48); }
   persist(); renderChatList();
   streamReply();
 }
@@ -965,7 +1020,14 @@ async function streamReply(model, hint){
   // contract: the LAST message is an assistant whose current variant is the empty target
   let target=c.messages[c.messages.length-1];
   if(!target || target.role!=='assistant'){ target={role:'assistant',variants:[{content:'',ts:now()}],vi:0}; c.messages.push(target); }
-  const sendMsgs = c.messages.slice(0, c.messages.length-1).map(m=>({role:m.role, content:msgText(m)}));
+  const sendMsgs = c.messages.slice(0, c.messages.length-1).map(m=>{
+    if(m.role==='user' && m.atts && m.atts.length){
+      const att=m.atts.map(a=>`[File: ${a.name}]\n${a.content}`).join('\n\n');
+      const t=msgText(m);
+      return {role:'user', content: att + (t ? '\n\n'+t : '')};
+    }
+    return {role:m.role, content:msgText(m)};
+  });
   if(hint) sendMsgs.push({role:'user', content:hint});  // transient steering, not stored
 
   // render thread (shows empty target) then stream into the last assistant element
