@@ -481,7 +481,7 @@ const sendBtn = $('#send');
 
 function getKey(){ return localStorage.getItem('cg_pwm_key')||''; }
 function now(){ return Date.now(); }
-function msgText(m){ return m.role==='assistant' ? ((m.variants&&m.variants[m.vi]&&m.variants[m.vi].content)||'') : (m.content||''); }
+function msgText(m){ if(m.variants&&m.variants[m.vi]) return m.variants[m.vi].content||''; return m.content||''; }
 
 // ── Theme ───────────────────────────────────────────────────────────────
 function resolveTheme(pref){
@@ -655,16 +655,24 @@ function renderThread(){
 function renderMessage(m, idx){
   const msg=document.createElement('div'); msg.className='msg '+m.role;
   if(m.role==='user'){
+    const ucontent=msgText(m);
+    const unver=(m.variants&&m.variants.length)||1;
+    const upager=(unver>1)?`<span class="pager"><button class="act act-uprev" title="Previous">‹</button><span class="pnum">${m.vi+1}/${unver}</span><button class="act act-unext" title="Next">›</button></span>`:'';
     msg.innerHTML=`<div class="grp">
         <div class="bubble"></div>
         <div class="actions">
+          ${upager}
           <button class="act act-edit" title="Edit message"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
           <button class="act act-ucopy" title="Copy"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
         </div>
       </div>`;
-    msg.querySelector('.bubble').textContent=m.content;
+    msg.querySelector('.bubble').textContent=ucontent;
     msg.querySelector('.act-edit').onclick=()=>startEdit(idx, msg);
-    msg.querySelector('.act-ucopy').onclick=(e)=>copyBtn(e.currentTarget, m.content);
+    msg.querySelector('.act-ucopy').onclick=(e)=>copyBtn(e.currentTarget, ucontent);
+    if(upager){
+      msg.querySelector('.act-uprev').onclick=()=>switchUserVersion(idx,-1);
+      msg.querySelector('.act-unext').onclick=()=>switchUserVersion(idx,1);
+    }
   } else {
     const content = msgText(m);
     const isLast = idx===activeMsgs().length-1;
@@ -714,20 +722,38 @@ function startEdit(idx, msgEl){
         <button class="btn btn-primary btn-sm" data-act="send">Send</button>
       </div></div>`;
   const ta=grp.querySelector('textarea');
-  ta.value=m.content; ta.style.height='auto'; ta.style.height=Math.min(ta.scrollHeight,260)+'px';
+  ta.value=msgText(m); ta.style.height='auto'; ta.style.height=Math.min(ta.scrollHeight,260)+'px';
   ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
   ta.oninput=()=>{ ta.style.height='auto'; ta.style.height=Math.min(ta.scrollHeight,260)+'px'; };
   grp.querySelector('[data-act="cancel"]').onclick=()=>renderThread();
   grp.querySelector('[data-act="send"]').onclick=()=>{
     const v=ta.value.trim(); if(!v) return;
     const c=activeConvo(); if(!c) return;
-    c.messages=c.messages.slice(0,idx);          // truncate at the edited turn
-    c.messages.push({role:'user',content:v,ts:now()});
+    const node=c.messages[idx]; if(!node||node.role!=='user') return;
+    // upgrade a legacy user node to the versioned form
+    if(!node.variants){ node.variants=[{content:node.content||'',ts:node.ts}]; node.vi=0; delete node.content; }
+    if(!node.alts) node.alts={};
+    // stash the current downstream branch under the current version, then start a new version
+    node.alts[node.vi]=c.messages.slice(idx+1);
+    node.variants.push({content:v,ts:now()}); node.vi=node.variants.length-1; node.alts[node.vi]=[];
+    c.messages=c.messages.slice(0,idx+1);
     c.messages.push({role:'assistant',variants:[{content:'',ts:now()}],vi:0});
     persist();
     streamReply();
   };
   ta.onkeydown=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); grp.querySelector('[data-act="send"]').click(); } };
+}
+
+function switchUserVersion(idx, dir){
+  if(generating) return;
+  const c=activeConvo(); if(!c) return;
+  const node=c.messages[idx]; if(!node||!node.variants) return;
+  const ni=node.vi+dir; if(ni<0||ni>=node.variants.length) return;
+  if(!node.alts) node.alts={};
+  node.alts[node.vi]=c.messages.slice(idx+1);   // save current branch
+  node.vi=ni;
+  c.messages=c.messages.slice(0,idx+1).concat(node.alts[node.vi]||[]);  // restore target branch
+  persist(); renderThread(); setLanding(); scrollBottom(true);
 }
 
 function regenMenu(anchor, idx){
