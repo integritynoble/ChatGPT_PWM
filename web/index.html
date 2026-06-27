@@ -133,15 +133,10 @@
   body.landing #dock{flex:1;display:flex;flex-direction:column;justify-content:center;padding-bottom:13vh}
   body.landing #greeting{display:block}
   body.landing #disclaimer{display:none}
-  #suggest{display:none}
-  body.landing #suggest{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:18px}
 
   .msg{padding:18px 0;display:flex;gap:16px}
   .msg.user{justify-content:flex-end}
   .msg.assistant{justify-content:flex-start}
-  .msg .logo{width:30px;height:30px;border-radius:50%;border:1px solid var(--border);display:flex;
-             align-items:center;justify-content:center;flex-shrink:0;background:var(--bg)}
-  .msg .logo svg{width:18px;height:18px}
   .bubble{max-width:100%}
   .msg.user .grp{max-width:75%;display:flex;flex-direction:column;align-items:flex-end}
   .msg.user .bubble{background:var(--user-bubble);border-radius:22px;padding:10px 18px;
@@ -199,7 +194,6 @@
        color:var(--text-3);transition:all .15s;position:relative}
   .act:hover{background:var(--hover);color:var(--text)}
   .act.ok{color:#19c37d}
-  .ts{font-size:11px;color:var(--text-3);margin-left:6px;align-self:center}
 
   /* streaming cursor */
   .cursor::after{content:'';display:inline-block;width:9px;height:18px;background:var(--text);
@@ -222,10 +216,6 @@
         align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s,background .15s}
   #send:disabled{background:#8886;color:#fff8;cursor:not-allowed}
   #disclaimer{text-align:center;font-size:12px;color:var(--text-3);padding:10px 0 2px}
-
-  .sugg{padding:11px 16px;border:1px solid var(--border);border-radius:14px;font-size:14px;color:var(--text-2);
-        transition:all .15s;text-align:left}
-  .sugg:hover{background:var(--hover);color:var(--text);border-color:transparent}
 
   /* scroll-to-bottom */
   #to-bottom{position:absolute;left:50%;transform:translateX(-50%);bottom:96px;width:34px;height:34px;
@@ -309,10 +299,10 @@
     <div id="chat-list"></div>
     <div class="sb-foot">
       <button class="account" onclick="toggleAccountMenu(event)">
-        <span class="avatar-sm" id="acct-avatar">P</span>
+        <span class="avatar-sm" id="acct-avatar"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v3h16v-3c0-2.76-3.58-5-8-5Z"/></svg></span>
         <span class="meta">
-          <span class="name" id="acct-name">PWM account</span>
-          <span class="sub" id="acct-sub">Set PWM key</span>
+          <span class="name" id="acct-name">ChatGPT account</span>
+          <span class="sub" id="acct-sub">Log in</span>
         </span>
       </button>
     </div>
@@ -348,7 +338,7 @@
         <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
       </button>
       <div class="topbar-spacer"></div>
-      <button class="top-avatar" id="top-avatar" onclick="toggleAccountMenu(event)">P</button>
+      <button class="top-avatar" id="top-avatar" onclick="toggleAccountMenu(event)" aria-label="Account"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v3h16v-3c0-2.76-3.58-5-8-5Z"/></svg></button>
     </header>
 
     <div class="pop" id="model-menu"></div>
@@ -365,7 +355,7 @@
       <div id="greeting"><h1>What can I help with?</h1></div>
       <div id="composer-inner">
         <form id="composer" onsubmit="onSend(event)">
-          <button type="button" class="round" title="Attach" onclick="showToast('Attachments are not available in this build.')">
+          <button type="button" class="round" title="Add" aria-label="Add">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
           <textarea id="input" rows="1" placeholder="Ask anything"
@@ -374,12 +364,6 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
           </button>
         </form>
-        <div id="suggest">
-          <button class="sugg" onclick="useSugg(this)">Explain a concept in simple terms</button>
-          <button class="sugg" onclick="useSugg(this)">Write and debug some code</button>
-          <button class="sugg" onclick="useSugg(this)">Draft an email or document</button>
-          <button class="sugg" onclick="useSugg(this)">Brainstorm ideas with me</button>
-        </div>
         <div id="disclaimer">ChatGPT can make mistakes. Check important info.</div>
       </div>
     </div>
@@ -483,7 +467,6 @@ const sendBtn = $('#send');
 
 function getKey(){ return localStorage.getItem('cg_pwm_key')||''; }
 function now(){ return Date.now(); }
-function fmtTime(ts){ if(!ts) return ''; try{ return new Date(ts).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); }catch(e){ return ''; } }
 
 // ── Theme ───────────────────────────────────────────────────────────────
 function resolveTheme(pref){
@@ -666,12 +649,10 @@ function renderMessage(m, idx){
     msg.querySelector('.act-edit').onclick=()=>startEdit(idx, msg);
     msg.querySelector('.act-ucopy').onclick=(e)=>copyBtn(e.currentTarget, m.content);
   } else {
-    msg.innerHTML=`<div class="logo"><svg viewBox="0 0 24 24"><use href="#oai"/></svg></div>
-      <div class="col"><div class="markdown"></div>
+    msg.innerHTML=`<div class="col"><div class="markdown"></div>
         <div class="actions">
           <button class="act act-copy" title="Copy"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
           <button class="act act-regen" title="Regenerate"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg></button>
-          <span class="ts">${fmtTime(m.ts)}</span>
         </div>
       </div>`;
     const md=msg.querySelector('.markdown');
@@ -758,7 +739,6 @@ scroll.addEventListener('scroll',()=>{
 function autosize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,200)+'px';
   sendBtn.disabled = generating ? false : !el.value.trim(); }
 function onKey(e){ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); onSend(e); } }
-function useSugg(el){ input.value=el.textContent; autosize(input); input.focus(); }
 
 function setGenerating(on){
   generating=on;
@@ -902,15 +882,15 @@ async function refreshBalance(){
 
 function updateAccount(){
   const k=getKey();
-  $('#acct-sub').textContent = k ? (k.slice(0,10)+'…') : 'Set PWM key';
+  $('#acct-sub').textContent = k ? 'Manage account' : 'Log in';
 }
 function refreshAccountHead(){
   const k=getKey();
-  $('#acct-head-key').textContent = k ? (k.slice(0,12)+'…') : 'Not signed in';
-  const bal=$('#acct-head-bal'); bal.textContent = k ? 'Checking balance…' : 'Add your PWM key to start';
+  $('#acct-head-key').textContent = k ? 'ChatGPT account' : 'Not signed in';
+  const bal=$('#acct-head-bal'); bal.textContent = k ? '' : 'Log in to start';
   if(k){
     fetch('/api/balance',{headers:{'X-PWM-Key':k}}).then(r=>r.json()).then(d=>{
-      bal.textContent = (d.valid && d.balance!=null) ? `Balance: ${Number(d.balance).toFixed(2)} PWM` : (d.reason||'');
+      bal.textContent = (d.valid && d.balance!=null) ? `${Number(d.balance).toFixed(2)} PWM available` : (d.reason||'');
     }).catch(()=>{ bal.textContent=''; });
   }
 }
