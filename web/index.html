@@ -293,6 +293,13 @@
                display:flex;align-items:center;justify-content:space-between;gap:12px}
   .danger-zone span{font-size:13px;color:var(--text-2)}
 
+  #drop-overlay{position:fixed;inset:0;z-index:300;display:none;align-items:center;justify-content:center;
+                background:rgba(0,0,0,.55);backdrop-filter:blur(2px);pointer-events:none}
+  body.dropping #drop-overlay{display:flex}
+  .drop-card{border:2px dashed rgba(255,255,255,.55);border-radius:18px;padding:36px 52px;font-size:18px;
+             font-weight:500;color:#fff;display:flex;flex-direction:column;align-items:center;gap:12px;
+             background:rgba(0,0,0,.35)}
+
   #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#2f2f2f;color:#fff;
          border:1px solid rgba(255,255,255,.12);
          padding:11px 20px;border-radius:10px;font-size:14px;display:none;z-index:200;max-width:80%;
@@ -491,6 +498,14 @@
 
 <div id="toast"></div>
 
+<!-- drag-and-drop overlay -->
+<div id="drop-overlay">
+  <div class="drop-card">
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 9 12 4 17 9"/><line x1="12" y1="4" x2="12" y2="16"/></svg>
+    Drop files to add them to the chat
+  </div>
+</div>
+
 <script>
 // ── Markdown setup ──────────────────────────────────────────────────────
 marked.setOptions({gfm:true, breaks:false});
@@ -670,6 +685,28 @@ async function addAttachment(f){
             : 'Could not read '+f.name);
   }
 }
+
+// ── Drag-and-drop + paste to attach ─────────────────────────────────────
+let _dragDepth=0;
+const _hasFiles = e => !!(e.dataTransfer && Array.from(e.dataTransfer.types||[]).includes('Files'));
+window.addEventListener('dragenter', e=>{ if(_hasFiles(e)){ e.preventDefault(); _dragDepth++; document.body.classList.add('dropping'); } });
+window.addEventListener('dragover',  e=>{ if(_hasFiles(e)) e.preventDefault(); });
+window.addEventListener('dragleave', e=>{ if(_hasFiles(e)){ _dragDepth=Math.max(0,_dragDepth-1); if(!_dragDepth) document.body.classList.remove('dropping'); } });
+window.addEventListener('drop', e=>{
+  if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){
+    e.preventDefault(); _dragDepth=0; document.body.classList.remove('dropping');
+    if(!getKey()){ openKeyModal(); return; }
+    Array.from(e.dataTransfer.files).forEach(f=>addAttachment(f));
+  }
+});
+input.addEventListener('paste', e=>{
+  const items = e.clipboardData && e.clipboardData.items; if(!items) return;
+  let handled=false;
+  for(const it of items){
+    if(it.kind==='file'){ const f=it.getAsFile(); if(f){ addAttachment(f); handled=true; } }
+  }
+  if(handled) e.preventDefault();  // only intercept files; let normal text paste through
+});
 function renderAttachments(){
   const row=$('#attach-row'); row.innerHTML='';
   attachments.forEach((a,i)=>{
@@ -786,14 +823,14 @@ function delConvo(id){
 }
 
 function loadConvo(id){
-  exitFeature();
+  exitFeature(); attachments=[]; renderAttachments();
   activeId=id; const c=convos.find(c=>c.id===id); if(!c) return;
   renderThread(); renderChatList(); setLanding(); scrollBottom(true);
   if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');
 }
 
 function newChat(){
-  exitFeature();
+  exitFeature(); attachments=[]; renderAttachments();
   activeId=null; renderThread(); renderChatList(); setLanding();
   input.value=''; autosize(input); input.focus();
   if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');
