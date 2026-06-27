@@ -251,6 +251,9 @@
   .chip .x{cursor:pointer;color:var(--text-3);font-size:12px;line-height:1}
   .chip .x:hover{color:var(--text)}
   .bubble-atts{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-bottom:6px}
+  .chip.img{padding:5px 9px 5px 5px}
+  .chip .thumb{width:34px;height:34px;border-radius:7px;object-fit:cover;flex-shrink:0}
+  .bubble-img{max-width:240px;max-height:260px;border-radius:14px;display:block;border:1px solid var(--border)}
 
   /* scroll-to-bottom */
   #to-bottom{position:absolute;left:50%;transform:translateX(-50%);bottom:96px;width:34px;height:34px;
@@ -442,7 +445,7 @@
 
 <!-- composer "+" add menu -->
 <input type="file" id="file-input" multiple style="display:none" onchange="onFiles(this)"
-  accept=".txt,.md,.markdown,.csv,.tsv,.json,.js,.jsx,.ts,.tsx,.py,.java,.c,.cpp,.h,.hpp,.go,.rs,.rb,.php,.html,.css,.scss,.xml,.yml,.yaml,.toml,.ini,.cfg,.log,.sh,.bash,.sql,text/*">
+  accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif,.txt,.md,.markdown,.csv,.tsv,.json,.js,.jsx,.ts,.tsx,.py,.java,.c,.cpp,.h,.hpp,.go,.rs,.rb,.php,.html,.css,.scss,.xml,.yml,.yaml,.toml,.ini,.cfg,.log,.sh,.bash,.sql,text/*">
 <div class="pop" id="plus-menu">
   <button class="menu-row" onclick="document.getElementById('file-input').click()">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
@@ -624,16 +627,26 @@ function onFiles(inp){
   const files=[...inp.files]; inp.value=''; closeAllPops();
   files.forEach(f=>{
     const r=new FileReader();
-    r.onload=()=>{ attachments.push({name:f.name, content:String(r.result||'').slice(0,100000)}); renderAttachments(); };
-    r.onerror=()=>showToast('Could not read '+f.name);
-    r.readAsText(f);
+    if(f.type.startsWith('image/')){
+      if(f.size > 6500000){ showToast(f.name+' is too large (max ~6 MB).'); return; }
+      r.onload=()=>{ attachments.push({name:f.name, kind:'image', url:String(r.result||'')}); renderAttachments(); };
+      r.onerror=()=>showToast('Could not read '+f.name);
+      r.readAsDataURL(f);
+    } else {
+      r.onload=()=>{ attachments.push({name:f.name, kind:'text', content:String(r.result||'').slice(0,100000)}); renderAttachments(); };
+      r.onerror=()=>showToast('Could not read '+f.name);
+      r.readAsText(f);
+    }
   });
 }
 function renderAttachments(){
   const row=$('#attach-row'); row.innerHTML='';
   attachments.forEach((a,i)=>{
-    const c=document.createElement('div'); c.className='chip';
-    c.innerHTML=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="nm">${escapeHtml(a.name)}</span><span class="x">✕</span>`;
+    const c=document.createElement('div'); c.className='chip'+(a.kind==='image'?' img':'');
+    c.innerHTML=(a.kind==='image'
+      ? `<img class="thumb" src="${a.url}" alt="">`
+      : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`)
+      +`<span class="nm">${escapeHtml(a.name)}</span><span class="x">✕</span>`;
     c.querySelector('.x').onclick=()=>{ attachments.splice(i,1); renderAttachments(); };
     row.appendChild(c);
   });
@@ -643,7 +656,16 @@ function renderAttachments(){
 // ── Conversations ───────────────────────────────────────────────────────
 function activeConvo(){ return convos.find(c=>c.id===activeId); }
 function activeMsgs(){ const c=activeConvo(); return c?c.messages:[]; }
-function persist(){ localStorage.setItem('cg_convos', JSON.stringify(convos.slice(0,120))); }
+function persist(){
+  try{ localStorage.setItem('cg_convos', JSON.stringify(convos.slice(0,120))); }
+  catch(e){   // quota (large images) — store a slimmed copy without image data
+    try{
+      const slim=convos.slice(0,120).map(c=>({...c, messages:(c.messages||[]).map(m=>
+        m.atts ? {...m, atts:m.atts.map(a=> a.kind==='image' ? {name:a.name, kind:'image'} : a)} : m)}));
+      localStorage.setItem('cg_convos', JSON.stringify(slim));
+    }catch(_){}
+  }
+}
 
 function ensureConvo(){
   if(activeConvo()) return activeConvo();
@@ -790,7 +812,13 @@ function renderMessage(m, idx){
     const ucontent=msgText(m);
     const unver=(m.variants&&m.variants.length)||1;
     const upager=(unver>1)?`<span class="pager"><button class="act act-uprev" title="Previous">‹</button><span class="pnum">${m.vi+1}/${unver}</span><button class="act act-unext" title="Next">›</button></span>`:'';
-    const attHtml=(m.atts&&m.atts.length)?`<div class="bubble-atts">`+m.atts.map(a=>`<span class="chip"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="nm">${escapeHtml(a.name)}</span></span>`).join('')+`</div>`:'';
+    const attHtml=(m.atts&&m.atts.length)?`<div class="bubble-atts">`+m.atts.map(a=>
+        a.kind==='image'
+          ? (a.url
+              ? `<img class="bubble-img" src="${a.url}" alt="${escapeHtml(a.name)}">`
+              : `<span class="chip"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg><span class="nm">${escapeHtml(a.name)}</span></span>`)
+          : `<span class="chip"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span class="nm">${escapeHtml(a.name)}</span></span>`
+      ).join('')+`</div>`:'';
     msg.innerHTML=`<div class="grp">
         ${attHtml}
         <div class="bubble"></div>
@@ -1029,9 +1057,18 @@ async function streamReply(model, hint){
   if(!target || target.role!=='assistant'){ target={role:'assistant',variants:[{content:'',ts:now()}],vi:0}; c.messages.push(target); }
   const sendMsgs = c.messages.slice(0, c.messages.length-1).map(m=>{
     if(m.role==='user' && m.atts && m.atts.length){
-      const att=m.atts.map(a=>`[File: ${a.name}]\n${a.content}`).join('\n\n');
+      const textFiles=m.atts.filter(a=>a.kind!=='image');
+      const imgs=m.atts.filter(a=>a.kind==='image' && a.url);
+      const folded=textFiles.map(a=>`[File: ${a.name}]\n${a.content}`).join('\n\n');
       const t=msgText(m);
-      return {role:'user', content: att + (t ? '\n\n'+t : '')};
+      const textPart = folded ? (folded + (t ? '\n\n'+t : '')) : t;
+      if(imgs.length){
+        const parts=[];
+        if(textPart) parts.push({type:'text', text:textPart});
+        imgs.forEach(a=>parts.push({type:'image_url', image_url:a.url}));
+        return {role:'user', content:parts};
+      }
+      return {role:'user', content:textPart};
     }
     return {role:m.role, content:msgText(m)};
   });

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, List, Optional, Union
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,13 +36,40 @@ app.add_middleware(
 
 class Message(BaseModel):
     role: str
-    content: str
+    # str for plain text, or a list of parts ({type:"text",text} / {type:"image_url",image_url})
+    content: Union[str, List[Any]]
 
 
 class ChatRequest(BaseModel):
     messages: List[Message]
     model: str = subscription.DEFAULT_MODEL
     stream: bool = True
+
+
+# Image-input limits (data-URL length; base64 is ~1.33x the binary size).
+MAX_IMAGES = 6
+MAX_IMAGE_CHARS = 9_000_000  # ~6.7 MB binary
+
+
+def _validate_images(messages: List[dict]) -> None:
+    """Reject oversized / too-many image parts before hitting the backend."""
+    count = 0
+    for m in messages:
+        content = m.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") in ("image_url", "image", "input_image"):
+                count += 1
+                url = part.get("image_url") or part.get("image") or part.get("url") or ""
+                if isinstance(url, dict):
+                    url = url.get("url", "")
+                if isinstance(url, str) and len(url) > MAX_IMAGE_CHARS:
+                    raise HTTPException(status_code=413, detail="Image too large (max ~6 MB each).")
+    if count > MAX_IMAGES:
+        raise HTTPException(status_code=413, detail=f"Too many images (max {MAX_IMAGES}).")
 
 
 async def _stream_with_billing(
@@ -90,6 +117,7 @@ async def chat(req: Request, body: ChatRequest):
             raise HTTPException(status_code=code, detail=check.reason)
 
     messages = [m.model_dump() for m in body.messages]
+    _validate_images(messages)
 
     try:
         # Validate auth availability up front so errors surface as JSON, not a broken stream.

@@ -162,6 +162,39 @@ async def get_access_token() -> tuple[str, str]:
 
 # ── Request/response translation ──────────────────────────────────────────
 
+def _text_of(content) -> str:
+    """Flatten a content value (str or parts list) to plain text."""
+    if isinstance(content, list):
+        out = []
+        for p in content:
+            if isinstance(p, dict) and p.get("type") in ("text", "input_text", "output_text"):
+                out.append(p.get("text", ""))
+        return " ".join(out).strip()
+    return content or ""
+
+
+def _content_parts(role: str, content) -> list:
+    """Build responses-API content parts from a str or a list of parts."""
+    text_type = "output_text" if role == "assistant" else "input_text"
+    if not isinstance(content, list):
+        return [{"type": text_type, "text": content or ""}]
+    parts: list = []
+    for p in content:
+        if not isinstance(p, dict):
+            parts.append({"type": text_type, "text": str(p)})
+            continue
+        t = p.get("type")
+        if t in ("text", "input_text", "output_text"):
+            parts.append({"type": text_type, "text": p.get("text", "")})
+        elif t in ("image_url", "image", "input_image"):
+            url = p.get("image_url") or p.get("image") or p.get("url")
+            if isinstance(url, dict):
+                url = url.get("url")
+            if url:  # images only make sense as input
+                parts.append({"type": "input_image", "image_url": url})
+    return parts or [{"type": text_type, "text": ""}]
+
+
 def _to_responses_input(messages: List[dict]) -> tuple[str, list]:
     """Split chat messages into (instructions, responses-input items)."""
     instructions = ""
@@ -170,14 +203,14 @@ def _to_responses_input(messages: List[dict]) -> tuple[str, list]:
         role = m.get("role", "user")
         content = m.get("content", "")
         if role == "system":
-            instructions = (instructions + "\n\n" + content).strip() if instructions else content
+            text = _text_of(content)
+            instructions = (instructions + "\n\n" + text).strip() if instructions else text
             continue
-        text_type = "output_text" if role == "assistant" else "input_text"
         items.append(
             {
                 "type": "message",
                 "role": role,
-                "content": [{"type": text_type, "text": content}],
+                "content": _content_parts(role, content),
             }
         )
     return instructions, items
