@@ -134,7 +134,9 @@ Saved conversations live in `~/.chatgpt-pwm/conversations/`. Auth tokens are in
 
 | | **chatgpt-pwm** | **claude-pwm** | **codex** |
 |---|---|---|---|
+| Version | v1.2.1 | — | — |
 | Provider | OpenAI | Anthropic | OpenAI |
 | Models | GPT-5.5 / 5.4 | Claude | GPT-5 family |
 | Interface | Conversational chat | Coding agent | Coding agent |
 | Auth | ChatGPT subscription (OAuth) | `ANTHROPIC_AUTH_TOKEN=pwm_...` | ChatGPT subscription (OAuth) |
+| Billing | PWM balance (`sk-pwm-…` key) | PWM balance | ChatGPT plan |
