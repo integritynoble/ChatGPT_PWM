@@ -44,6 +44,7 @@ class ChatRequest(BaseModel):
     messages: List[Message]
     model: str = subscription.DEFAULT_MODEL
     stream: bool = True
+    web_search: bool = False
 
 
 # Image-input limits (data-URL length; base64 is ~1.33x the binary size).
@@ -76,10 +77,11 @@ async def _stream_with_billing(
     pwm_key: Optional[str],
     messages: List[dict],
     model: str,
+    web_search: bool = False,
 ) -> AsyncIterator[bytes]:
     """Stream from the subscription backend, then bill PWM tokens on completion."""
     prompt_tokens = completion_tokens = 0
-    async for chunk in subscription.stream_chat(messages, model):
+    async for chunk in subscription.stream_chat(messages, model, web_search):
         # Capture usage from the final chunk for billing.
         text = chunk.decode(errors="replace")
         if '"usage"' in text:
@@ -126,7 +128,7 @@ async def chat(req: Request, body: ChatRequest):
         raise HTTPException(status_code=503, detail=str(e))
 
     return StreamingResponse(
-        _stream_with_billing(pwm_key, messages, body.model),
+        _stream_with_billing(pwm_key, messages, body.model, body.web_search),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

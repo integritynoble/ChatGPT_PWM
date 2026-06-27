@@ -216,14 +216,18 @@ def _to_responses_input(messages: List[dict]) -> tuple[str, list]:
     return instructions, items
 
 
-def _build_payload(messages: List[dict], model: str) -> dict:
+def _build_payload(messages: List[dict], model: str, web_search: bool = False) -> dict:
     instructions, items = _to_responses_input(messages)
+    instructions = instructions or "You are a helpful assistant."
+    if web_search:
+        instructions += ("\n\nYou can search the web. Search when it helps, and cite the "
+                         "sources you use with inline citations.")
     return {
         "model": _MODEL_MAP.get(model, DEFAULT_MODEL),
-        "instructions": instructions or "You are a helpful assistant.",
+        "instructions": instructions,
         "input": items,
-        "tools": [],
-        "tool_choice": "auto",
+        "tools": [{"type": "web_search"}] if web_search else [],
+        "tool_choice": {"type": "web_search"} if web_search else "auto",
         "parallel_tool_calls": False,
         "store": False,
         "stream": True,
@@ -244,12 +248,12 @@ def _headers(access_token: str, account_id: str) -> dict:
     }
 
 
-async def stream_chat(messages: List[dict], model: str) -> AsyncIterator[bytes]:
+async def stream_chat(messages: List[dict], model: str, web_search: bool = False) -> AsyncIterator[bytes]:
     """
     Proxy a chat request through the ChatGPT subscription backend and yield
     chat-completions-style SSE lines (``data: {...}``) the frontend understands.
     """
-    payload = _build_payload(messages, model)
+    payload = _build_payload(messages, model, web_search)
 
     async def _attempt(access_token: str, account_id: str):
         async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=30)) as client:
@@ -314,6 +318,16 @@ async def _translate_line(line: str, model: str) -> AsyncIterator[bytes]:
         delta = event.get("delta", "")
         if delta:
             yield _chat_chunk(model, delta).encode()
+    elif etype in ("response.web_search_call.in_progress", "response.web_search_call.searching"):
+        yield ("data: " + json.dumps({"status": "searching"}) + "\n\n").encode()
+    elif etype == "response.web_search_call.completed":
+        yield ("data: " + json.dumps({"status": "searched"}) + "\n\n").encode()
+    elif etype == "response.output_text.annotation.added":
+        anno = event.get("annotation") or {}
+        if anno.get("type") == "url_citation" and anno.get("url"):
+            yield ("data: " + json.dumps(
+                {"source": {"title": anno.get("title") or anno.get("url"), "url": anno.get("url")}}
+            ) + "\n\n").encode()
     elif etype == "response.completed":
         usage = (event.get("response") or {}).get("usage") or {}
         final = {
