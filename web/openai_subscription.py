@@ -245,6 +245,7 @@ def _build_payload(messages: List[dict], model: str, web_search: bool = False) -
         "parallel_tool_calls": False,
         "store": False,
         "stream": True,
+        "reasoning": {"summary": "auto"},   # surface a "Thinking" summary when the model reasons
         "prompt_cache_key": str(uuid.uuid4()),
     }
 
@@ -332,6 +333,8 @@ async def _translate_line(line: str, model: str) -> AsyncIterator[bytes]:
         delta = event.get("delta", "")
         if delta:
             yield _chat_chunk(model, delta).encode()
+    elif etype.startswith("response.reasoning") and isinstance(event.get("delta"), str) and event.get("delta"):
+        yield ("data: " + json.dumps({"reasoning": event["delta"]}) + "\n\n").encode()
     elif etype in ("response.web_search_call.in_progress", "response.web_search_call.searching"):
         yield ("data: " + json.dumps({"status": "searching"}) + "\n\n").encode()
     elif etype == "response.web_search_call.completed":

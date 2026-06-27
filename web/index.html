@@ -230,6 +230,17 @@
   .src svg{flex-shrink:0;opacity:.8}
   .src .dom{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+  /* reasoning / "Thinking" */
+  .reasoning-live{color:var(--text-2);font-size:14px}
+  .reasoning-live .rh{display:flex;align-items:center;gap:8px;color:var(--text-3);font-size:13px;margin-bottom:6px}
+  .reasoning-live .rt{white-space:pre-wrap;line-height:1.6;max-height:180px;overflow:auto;color:var(--text-2)}
+  .reasoning{margin:0 0 12px;border-left:2px solid var(--border);padding-left:12px}
+  .reasoning summary{cursor:pointer;color:var(--text-3);font-size:13px;list-style:none;user-select:none}
+  .reasoning summary::-webkit-details-marker{display:none}
+  .reasoning summary::before{content:'▸ ';color:var(--text-3)}
+  .reasoning[open] summary::before{content:'▾ '}
+  .reasoning .rt{margin-top:8px;color:var(--text-2);font-size:13.5px;white-space:pre-wrap;line-height:1.65}
+
   /* thinking dots */
   .thinking{display:flex;gap:5px;padding:4px 0 2px}
   .thinking span{width:8px;height:8px;border-radius:50%;background:var(--text-3);
@@ -973,7 +984,9 @@ function renderMessage(m, idx){
       srcs.map(s=>{ let host=''; try{host=new URL(s.url).hostname.replace(/^www\./,'');}catch(e){host=s.url;}
         return `<a class="src" href="${encodeURI(s.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(s.title||s.url)}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span class="dom">${escapeHtml(host)}</span></a>`;
       }).join('')+`</div></div>` : '';
-    msg.innerHTML=`<div class="col"><div class="markdown"></div>
+    const rsn=(m.variants&&m.variants[m.vi]&&m.variants[m.vi].reasoning)||'';
+    const rsnHtml = rsn ? `<details class="reasoning"><summary>Thought process</summary><div class="rt">${escapeHtml(rsn)}</div></details>` : '';
+    msg.innerHTML=`<div class="col">${rsnHtml}<div class="markdown"></div>
         ${srcHtml}
         <div class="actions">
           ${pager}
@@ -1216,7 +1229,7 @@ async function streamReply(model, hint){
   markLast(); scrollBottom(true);
   setGenerating(true);
   abortCtl=new AbortController();
-  let full=''; let firstToken=false; let raf=null; let sources=[];
+  let full=''; let firstToken=false; let raf=null; let sources=[]; let thinking='';
   const paint=()=>{ md.innerHTML=renderMarkdown(full); md.classList.add('cursor'); scrollBottom(); raf=null; };
 
   try{
@@ -1244,6 +1257,7 @@ async function streamReply(model, hint){
           const o=JSON.parse(d);
           if(o.status==='searching' && !firstToken){ md.innerHTML='<div class="searching"><span class="spin"></span> Searching the web…</div>'; }
           if(o.source && /^https?:\/\//.test(o.source.url) && !sources.some(s=>s.url===o.source.url)) sources.push(o.source);
+          if(o.reasoning){ thinking+=o.reasoning; if(!firstToken){ let live=md.querySelector('.reasoning-live .rt'); if(!live){ md.innerHTML='<div class="reasoning-live"><div class="rh"><span class="spin"></span> Thinking…</div><div class="rt"></div></div>'; live=md.querySelector('.reasoning-live .rt'); } live.textContent=thinking; scrollBottom(); } }
           const delta=(o.choices&&o.choices[0]&&o.choices[0].delta&&o.choices[0].delta.content)||'';
           if(delta){ if(!firstToken){firstToken=true; md.innerHTML='';} full+=delta; if(!raf) raf=requestAnimationFrame(paint); }
           if(o.error){ throw new Error(o.error.message||'stream error'); }
@@ -1258,6 +1272,7 @@ async function streamReply(model, hint){
     if(full.trim()){
       target.variants[target.vi].content=full; target.variants[target.vi].ts=now();
       if(sources.length) target.variants[target.vi].sources=sources;
+      if(thinking.trim()) target.variants[target.vi].reasoning=thinking;
       c.ts=now();
       persist(); renderChatList(); renderThread();
     } else {
