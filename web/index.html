@@ -296,6 +296,7 @@
   .chip.img{padding:5px 9px 5px 5px}
   .chip .thumb{width:34px;height:34px;border-radius:7px;object-fit:cover;flex-shrink:0}
   .bubble-img{max-width:240px;max-height:260px;border-radius:14px;display:block;border:1px solid var(--border)}
+  .gen-img{max-width:min(100%,420px);border-radius:14px;margin:8px 0;display:block;border:1px solid var(--border)}
 
   /* scroll-to-bottom */
   #to-bottom{position:absolute;left:50%;transform:translateX(-50%);bottom:96px;width:34px;height:34px;
@@ -480,6 +481,10 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
             Search
           </button>
+          <button type="button" class="tool-pill" id="imggen-toggle" title="Create an image" onclick="toggleImageGen()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
+            Image
+          </button>
           <textarea id="input" rows="1" placeholder="Ask anything"
                     onkeydown="onKey(event)" oninput="autosize(this)"></textarea>
           <button type="button" id="mic" class="round" title="Dictate" aria-label="Dictate" style="display:none" onclick="toggleDictate()">
@@ -611,6 +616,7 @@ let attachments = [];   // staged text-file attachments for the next message
 let tempMode = false;   // Temporary Chat: not saved to history
 let tempConvo = null;
 let webSearch = false;  // Search toggle: use the web_search tool
+let imageGen = false;   // Create-image toggle: use the image_generation tool
 
 const $ = s=>document.querySelector(s);
 const thread = $('#thread');
@@ -779,8 +785,12 @@ function persist(){
   try{ localStorage.setItem('cg_convos', JSON.stringify(convos.slice(0,120))); }
   catch(e){   // quota (large images) — store a slimmed copy without image data
     try{
-      const slim=convos.slice(0,120).map(c=>({...c, messages:(c.messages||[]).map(m=>
-        m.atts ? {...m, atts:m.atts.map(a=> a.kind==='image' ? {name:a.name, kind:'image'} : a)} : m)}));
+      const slim=convos.slice(0,120).map(c=>({...c, messages:(c.messages||[]).map(m=>{
+        let mm=m;
+        if(m.atts) mm={...mm, atts:m.atts.map(a=> a.kind==='image' ? {name:a.name, kind:'image'} : a)};
+        if(m.variants) mm={...mm, variants:m.variants.map(v=> v.image ? {...v, image:null} : v)};
+        return mm;
+      })}));
       localStorage.setItem('cg_convos', JSON.stringify(slim));
     }catch(_){}
   }
@@ -910,7 +920,8 @@ function exitFeature(){
   tempMode=false; tempConvo=null; document.body.classList.remove('temp');
   const tb=$('#temp-btn'); if(tb) tb.classList.remove('on');
 }
-function toggleWebSearch(){ webSearch=!webSearch; $('#search-toggle').classList.toggle('on', webSearch); input.focus(); }
+function toggleWebSearch(){ webSearch=!webSearch; if(webSearch){imageGen=false;$('#imggen-toggle').classList.remove('on');} $('#search-toggle').classList.toggle('on', webSearch); input.focus(); }
+function toggleImageGen(){ imageGen=!imageGen; if(imageGen){webSearch=false;$('#search-toggle').classList.remove('on');} $('#imggen-toggle').classList.toggle('on', imageGen); input.focus(); }
 function toggleTemp(){
   const turningOn = !tempMode;
   exitFeature();                       // leave any feature view / reset temp state
@@ -986,7 +997,10 @@ function renderMessage(m, idx){
       }).join('')+`</div></div>` : '';
     const rsn=(m.variants&&m.variants[m.vi]&&m.variants[m.vi].reasoning)||'';
     const rsnHtml = rsn ? `<details class="reasoning"><summary>Thought process</summary><div class="rt">${escapeHtml(rsn)}</div></details>` : '';
+    const gimg=(m.variants&&m.variants[m.vi]&&m.variants[m.vi].image)||'';
+    const gimgHtml = gimg ? `<img class="gen-img" src="${gimg}">` : '';
     msg.innerHTML=`<div class="col">${rsnHtml}<div class="markdown"></div>
+        ${gimgHtml}
         ${srcHtml}
         <div class="actions">
           ${pager}
@@ -1229,14 +1243,14 @@ async function streamReply(model, hint){
   markLast(); scrollBottom(true);
   setGenerating(true);
   abortCtl=new AbortController();
-  let full=''; let firstToken=false; let raf=null; let sources=[]; let thinking='';
+  let full=''; let firstToken=false; let raf=null; let sources=[]; let thinking=''; let genImage='';
   const paint=()=>{ md.innerHTML=renderMarkdown(full); md.classList.add('cursor'); scrollBottom(); raf=null; };
 
   try{
     const resp=await fetch('/api/chat',{
       method:'POST',
       headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
-      body:JSON.stringify({messages:sendMsgs, model, stream:true, web_search:webSearch}),
+      body:JSON.stringify({messages:sendMsgs, model, stream:true, web_search:webSearch, image_gen:imageGen}),
       signal:abortCtl.signal
     });
     if(!resp.ok){
@@ -1258,6 +1272,8 @@ async function streamReply(model, hint){
           if(o.status==='searching' && !firstToken){ md.innerHTML='<div class="searching"><span class="spin"></span> Searching the web…</div>'; }
           if(o.source && /^https?:\/\//.test(o.source.url) && !sources.some(s=>s.url===o.source.url)) sources.push(o.source);
           if(o.reasoning){ thinking+=o.reasoning; if(!firstToken){ let live=md.querySelector('.reasoning-live .rt'); if(!live){ md.innerHTML='<div class="reasoning-live"><div class="rh"><span class="spin"></span> Thinking…</div><div class="rt"></div></div>'; live=md.querySelector('.reasoning-live .rt'); } live.textContent=thinking; scrollBottom(); } }
+          if(o.status==='generating_image' && !firstToken){ md.innerHTML='<div class="searching"><span class="spin"></span> Creating image…</div>'; }
+          if(o.image){ genImage=o.image; let im=msgEl.querySelector('.gen-img'); if(!im){ if(md.querySelector('.thinking,.searching,.reasoning-live')) md.innerHTML=''; im=document.createElement('img'); im.className='gen-img'; const col=md.parentElement; col.insertBefore(im, col.querySelector('.actions')); } im.src=genImage; scrollBottom(); }
           const delta=(o.choices&&o.choices[0]&&o.choices[0].delta&&o.choices[0].delta.content)||'';
           if(delta){ if(!firstToken){firstToken=true; md.innerHTML='';} full+=delta; if(!raf) raf=requestAnimationFrame(paint); }
           if(o.error){ throw new Error(o.error.message||'stream error'); }
@@ -1269,10 +1285,11 @@ async function streamReply(model, hint){
   }finally{
     if(raf) cancelAnimationFrame(raf);
     md.classList.remove('cursor');
-    if(full.trim()){
+    if(full.trim() || genImage){
       target.variants[target.vi].content=full; target.variants[target.vi].ts=now();
       if(sources.length) target.variants[target.vi].sources=sources;
       if(thinking.trim()) target.variants[target.vi].reasoning=thinking;
+      if(genImage) target.variants[target.vi].image=genImage;
       c.ts=now();
       persist(); renderChatList(); renderThread();
     } else {

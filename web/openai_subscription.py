@@ -230,18 +230,25 @@ def _default_instructions() -> str:
     )
 
 
-def _build_payload(messages: List[dict], model: str, web_search: bool = False) -> dict:
+def _build_payload(messages: List[dict], model: str, web_search: bool = False,
+                   image_gen: bool = False) -> dict:
     instructions, items = _to_responses_input(messages)
     instructions = instructions or _default_instructions()
     if web_search:
         instructions += ("\n\nYou can search the web. Search when it helps, and cite the "
                          "sources you use with inline citations.")
+    if image_gen:
+        tools, tool_choice = [{"type": "image_generation"}], {"type": "image_generation"}
+    elif web_search:
+        tools, tool_choice = [{"type": "web_search"}], {"type": "web_search"}
+    else:
+        tools, tool_choice = [], "auto"
     return {
         "model": _MODEL_MAP.get(model, DEFAULT_MODEL),
         "instructions": instructions,
         "input": items,
-        "tools": [{"type": "web_search"}] if web_search else [],
-        "tool_choice": {"type": "web_search"} if web_search else "auto",
+        "tools": tools,
+        "tool_choice": tool_choice,
         "parallel_tool_calls": False,
         "store": False,
         "stream": True,
@@ -263,12 +270,13 @@ def _headers(access_token: str, account_id: str) -> dict:
     }
 
 
-async def stream_chat(messages: List[dict], model: str, web_search: bool = False) -> AsyncIterator[bytes]:
+async def stream_chat(messages: List[dict], model: str, web_search: bool = False,
+                      image_gen: bool = False) -> AsyncIterator[bytes]:
     """
     Proxy a chat request through the ChatGPT subscription backend and yield
     chat-completions-style SSE lines (``data: {...}``) the frontend understands.
     """
-    payload = _build_payload(messages, model, web_search)
+    payload = _build_payload(messages, model, web_search, image_gen)
 
     async def _attempt(access_token: str, account_id: str):
         async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=30)) as client:
@@ -335,6 +343,12 @@ async def _translate_line(line: str, model: str) -> AsyncIterator[bytes]:
             yield _chat_chunk(model, delta).encode()
     elif etype.startswith("response.reasoning") and isinstance(event.get("delta"), str) and event.get("delta"):
         yield ("data: " + json.dumps({"reasoning": event["delta"]}) + "\n\n").encode()
+    elif etype in ("response.image_generation_call.in_progress", "response.image_generation_call.generating"):
+        yield ("data: " + json.dumps({"status": "generating_image"}) + "\n\n").encode()
+    elif etype in ("response.image_generation_call.partial_image", "response.image_generation_call.completed"):
+        b64 = event.get("partial_image_b64") or event.get("result") or event.get("image_b64")
+        if isinstance(b64, str) and len(b64) > 100:
+            yield ("data: " + json.dumps({"image": "data:image/png;base64," + b64}) + "\n\n").encode()
     elif etype in ("response.web_search_call.in_progress", "response.web_search_call.searching"):
         yield ("data: " + json.dumps({"status": "searching"}) + "\n\n").encode()
     elif etype == "response.web_search_call.completed":
