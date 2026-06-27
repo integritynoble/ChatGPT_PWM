@@ -47,8 +47,16 @@
 
   /* ── Sidebar ───────────────────────────────────────── */
   #sidebar{width:var(--sb-w);background:var(--sidebar);display:flex;flex-direction:column;
-           flex-shrink:0;transition:margin-left .2s ease;overflow:hidden}
-  #sidebar.collapsed{margin-left:calc(var(--sb-w) * -1)}
+           flex-shrink:0;transition:width .2s ease, margin-left .2s ease;overflow:hidden}
+  /* desktop collapsed = narrow icon rail */
+  #sidebar.collapsed{width:56px}
+  #sidebar.collapsed .sb-top{flex-direction:column;align-items:center;gap:4px;padding:10px 0 4px}
+  #sidebar.collapsed .sb-nav,#sidebar.collapsed #sb-search,#sidebar.collapsed #chat-list{display:none}
+  #sidebar.collapsed .sb-foot{padding:8px 0}
+  #sidebar.collapsed .account{justify-content:center;padding:8px;gap:0}
+  #sidebar.collapsed .account .meta{display:none}
+  #rail-search{display:none}
+  #sidebar.collapsed #rail-search{display:flex}
   .sb-top{display:flex;align-items:center;justify-content:space-between;padding:10px 8px 4px}
   .icon-btn{width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;
             color:var(--text);transition:background .15s}
@@ -79,7 +87,7 @@
   .chat-item:hover .menu-btn{opacity:1}
   .chat-item .menu-btn:hover{background:var(--hover-2);color:var(--text)}
   .empty-list{padding:14px 14px;font-size:13px;color:var(--text-3)}
-  .sb-foot{padding:8px;border-top:1px solid var(--border)}
+  .sb-foot{padding:8px;border-top:1px solid var(--border);margin-top:auto}
   .account{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;width:100%;
            text-align:left;transition:background .15s}
   .account:hover{background:var(--hover)}
@@ -263,7 +271,9 @@
 
   @media (max-width:768px){
     #sidebar{position:fixed;z-index:60;height:100dvh;box-shadow:2px 0 20px rgba(0,0,0,.4)}
-    #sidebar.collapsed{margin-left:calc(var(--sb-w) * -1)}
+    /* mobile: collapsed = fully off-canvas (no rail) */
+    #sidebar.collapsed{width:var(--sb-w);margin-left:calc(var(--sb-w) * -1)}
+    #sidebar.collapsed .sb-top{flex-direction:row;align-items:center;padding:10px 8px 4px}
     .menu-toggle{display:flex}
     .msg.user .grp{max-width:88%}
   }
@@ -282,6 +292,9 @@
       </button>
       <button class="icon-btn" onclick="newChat()" title="New chat" aria-label="New chat">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      </button>
+      <button class="icon-btn" id="rail-search" onclick="railSearch()" title="Search chats" aria-label="Search chats">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       </button>
     </div>
     <nav class="sb-nav">
@@ -511,6 +524,7 @@ if(window.matchMedia){
 
 // ── Sidebar / nav ───────────────────────────────────────────────────────
 function toggleSidebar(){ $('#sidebar').classList.toggle('collapsed'); }
+function railSearch(){ $('#sidebar').classList.remove('collapsed'); if(!$('#sb-search').classList.contains('show')) toggleSearch(); }
 function toggleSearch(){
   const box=$('#sb-search'); box.classList.toggle('show');
   if(box.classList.contains('show')){ $('#search-input').focus(); }
