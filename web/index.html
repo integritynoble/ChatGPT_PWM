@@ -282,6 +282,7 @@
   .composer-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
   .cr-left{display:flex;align-items:center;gap:6px;min-width:0}
   .cr-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
+  #tools-row{display:flex;gap:8px;justify-content:center;margin-top:10px;flex-wrap:wrap}
   #input::placeholder{color:var(--text-3)}
   #send{width:36px;height:36px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:flex;
         align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s,background .15s}
@@ -487,14 +488,6 @@
               <button type="button" class="round" id="plus-btn" title="Add" aria-label="Add" onclick="togglePlusMenu(event)">
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               </button>
-              <button type="button" class="tool-pill" id="search-toggle" title="Search the web" onclick="toggleWebSearch()">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-                Search
-              </button>
-              <button type="button" class="tool-pill" id="imggen-toggle" title="Create an image" onclick="toggleImageGen()">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
-                Image
-              </button>
             </div>
             <div class="cr-right">
               <button type="button" id="mic" class="round" title="Dictate" aria-label="Dictate" style="display:none" onclick="toggleDictate()">
@@ -506,6 +499,16 @@
             </div>
           </div>
         </form>
+        <div id="tools-row">
+          <button type="button" class="tool-pill" id="search-toggle" title="Search the web" onclick="toggleWebSearch()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            Search
+          </button>
+          <button type="button" class="tool-pill" id="imggen-toggle" title="Create an image" onclick="toggleImageGen()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
+            Image
+          </button>
+        </div>
         <div id="disclaimer">ChatGPT can make mistakes. Check important info.</div>
       </div>
     </div>
