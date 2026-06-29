@@ -32,6 +32,29 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-06-29 — Three login methods on ChatGPT (Google / token.comparegpt.io / physicsworldmodel.org)
+
+**Request:** "Make chatgpt.comparegpt.io log in by token.comparegpt.io or
+physicsworldmodel.org or google." (Also reported the site "not available" — verified it
+was actually up: 200, valid cert, renders, zero console errors; likely a transient
+Cloudflare/network blip.)
+
+**Built:** the login modal now shows **three** SSO buttons — *Continue with Google*
+(with the Google "G" mark), *…with token.comparegpt.io*, *…with physicsworldmodel.org*
+— above the manual `sk-pwm-…` field. All three funnel through the portal's app-login
+bridge via `ssoLogin(method)`, which appends `&method=google|portal|pwm`. The portal
+login page reads `method` and emphasizes the matching option (Google for google/pwm).
+This reuses the portal's existing Google auth rather than duplicating it on ChatGPT.
+Paired portal change: `token` branch `feat/app-login-sso` (commit `6ad9eac`).
+
+**Verified:** JS syntax OK; headless — all three buttons render and navigate to the
+correct `…/api/auth/app-login?redirect_uri=<origin>/&method=…` URLs.
+
+**Still not deployed** (same ordering: portal endpoint must go live first). Live site
+keeps the previous working behavior until then.
+
+---
+
 ## 2026-06-29 — Automatic SSO: portal-side app-login endpoint (cross-repo)
 
 **Request:** "Build the portal-side endpoint too" — complete the automatic key handoff
