@@ -32,6 +32,42 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-06-29 — Portal login buttons + "get a token first" chat gate
+
+**Request:** Let ChatGPT-PWM users log in directly via `token.comparegpt.io` /
+`physicsworldmodel.org`; and when a logged-out user tries to chat, send them to
+`https://token.comparegpt.io/` to get a PWM token first.
+
+**Design + investigation** (spec: `docs/superpowers/specs/2026-06-29-pwm-sso-login-design.md`).
+Read the platform (`pwm_nonprofit_dev`) and portal (`token/`) source to ground the
+flow. Key constraints discovered: the platform's `/api/v1/auth/sso/issue` allowlists a
+**single** `redirect_uri` (`token.comparegpt.io/api/auth/pwm-sso`), and the portal's
+session cookie is host-scoped to `token.comparegpt.io` (not `.comparegpt.io`). So a
+**fully-automatic** key handoff can't be done from `chatgpt-pwm` alone — it needs a
+portal-side app-callback (deferred, would touch production auth in another repo).
+
+**What shipped** (self-contained, `web/index.html` only — satisfies the request):
+- **Login modal:** two portal buttons — *Continue with token.comparegpt.io* and
+  *Continue with physicsworldmodel.org* — above an "or paste your key" divider and the
+  existing `sk-pwm-…` field. Buttons redirect to the portal with a forward-compat
+  `?return=<chatgpt-url>`. Hidden in full **Settings** mode.
+- **Chat gate:** pressing send with no stored key now redirects the current tab to
+  `https://token.comparegpt.io/` (toast: "Get a PWM token first…") instead of just
+  reopening the modal. (Other entry points unchanged; no auto-redirect on page load.)
+- **Forward-compatible return handler:** on load, a key arriving as
+  `#pwm_key=…`/`#key=…`/`?pwm_key=…` (must match `sk-pwm-`) is stored and scrubbed from
+  the URL — so if the portal later adds an app-callback, login completes with no
+  further change here.
+
+**Deploy / verify**
+- `node --check` → OK; headless Chromium against a temp server: both buttons render,
+  return-handler captures + scrubs both hash and query forms, chat-gate redirect hits
+  `token.comparegpt.io/?return=…`, portal buttons hidden in Settings, zero console errors.
+- Deployed to **both** live dirs (`chatgpt-web` + `chatgpt-web-dev`); verified the two
+  buttons render live on `chatgpt.comparegpt.io` and `chatgpt.platformai.org`.
+
+---
+
 ## 2026-06-29 — PWM-token onboarding reminder in the login modal
 
 **Request:** Resume the ChatGPT session, record history here, and keep PWM ChatGPT at

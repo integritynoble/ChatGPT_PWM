@@ -335,6 +335,10 @@
   .btn-ghost:hover{background:var(--hover-2)}
   .btn-sm{padding:6px 14px;border-radius:8px;font-size:13px}
   .btn-danger{background:var(--danger);color:#fff}
+  .btn-block{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-bottom:10px}
+  .btn-block svg{flex-shrink:0}
+  .or-sep{display:flex;align-items:center;gap:10px;color:var(--text-3);font-size:12px;margin:16px 0 2px}
+  .or-sep::before,.or-sep::after{content:"";flex:1;height:1px;background:var(--border)}
   .modal .balance{font-size:13px;color:var(--text-3);margin-top:12px}
   .danger-zone{margin-top:18px;padding-top:16px;border-top:1px solid var(--border);
                display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -545,6 +549,12 @@
     <h2 id="settings-title">Log in to ChatGPT</h2>
     <p id="settings-desc">Don't have a PWM token? Get one at <a href="https://token.comparegpt.io" target="_blank" rel="noopener" style="color:#7eb6ff;text-decoration:underline">token.comparegpt.io</a>. Then enter your access key below to start chatting.</p>
 
+    <div id="login-portals">
+      <button class="btn btn-primary btn-block" onclick="gotoPortal(PWM_PORTAL_URL)">Continue with token.comparegpt.io</button>
+      <button class="btn btn-ghost btn-block" onclick="gotoPortal(PWM_PLATFORM_URL)">Continue with physicsworldmodel.org</button>
+      <div class="or-sep">or paste your key</div>
+    </div>
+
     <label for="key-input">Access key</label>
     <input id="key-input" type="password" placeholder="sk-pwm-…" autocomplete="off" spellcheck="false">
     <div class="balance" id="balance-line"></div>
@@ -649,6 +659,36 @@ const thread = $('#thread');
 const scroll = $('#scroll');
 const input = $('#input');
 const sendBtn = $('#send');
+
+// ── PWM login portals ─────────────────────────────────────────────────────
+// Auth is via a PWM token (sk-pwm-…). Users obtain/log in at the token portal;
+// physicsworldmodel.org is the underlying PWM platform. A fully-automatic key
+// handoff needs a portal-side app-callback (the portal cookie is host-scoped to
+// token.comparegpt.io and /sso/issue allowlists only the portal), so for now we
+// send users to the portal and capture a returned key if one is ever provided.
+const PWM_PORTAL_URL   = 'https://token.comparegpt.io/';
+const PWM_PLATFORM_URL = 'https://physicsworldmodel.org/';
+function gotoPortal(url){
+  // Pass where to return so a future portal app-callback can redirect back with
+  // the minted key (#pwm_key=…). Harmless extra query param to the portal today.
+  try{ const u=new URL(url); u.searchParams.set('return', location.origin + location.pathname); window.location.href = u.toString(); }
+  catch(_){ window.location.href = url; }
+}
+// Forward-compatible: if we ever land with a key in the URL (#pwm_key=… / ?pwm_key=…),
+// store it and scrub it from the address bar. Returns true if a key was captured.
+function captureKeyFromUrl(){
+  try{
+    const h = new URLSearchParams((location.hash||'').replace(/^#/,''));
+    const q = new URLSearchParams(location.search||'');
+    const k = h.get('pwm_key')||h.get('key')||q.get('pwm_key')||q.get('key')||'';
+    if(k && /^sk-pwm-/.test(k)){
+      localStorage.setItem('cg_pwm_key', k.trim());
+      history.replaceState(null, '', location.origin + location.pathname);
+      return true;
+    }
+  }catch(_){}
+  return false;
+}
 
 function getKey(){ return localStorage.getItem('cg_pwm_key')||''; }
 function now(){ return Date.now(); }
@@ -1222,7 +1262,8 @@ async function onSend(e){
   if(generating){ if(abortCtl) abortCtl.abort(); return; }
   const text=input.value.trim();
   if(!text && !attachments.length) return;
-  if(!getKey()){ openKeyModal(); return; }
+  // No PWM token yet → send them to the portal to get one first.
+  if(!getKey()){ showToast('Get a PWM token first — taking you to token.comparegpt.io'); gotoPortal(PWM_PORTAL_URL); return; }
   const atts=attachments.slice(); attachments=[]; renderAttachments();
   input.value=''; autosize(input);
   const c=ensureConvo();
@@ -1343,6 +1384,7 @@ function openSettingsModal(){
     $('#settings-desc').innerHTML = 'Don\'t have a PWM token? Get one at <a href="https://token.comparegpt.io" target="_blank" rel="noopener" style="color:#7eb6ff;text-decoration:underline">token.comparegpt.io</a>. Then enter your access key below to start chatting.';
   }
   $('#settings-extra').style.display = full ? 'block' : 'none';
+  $('#login-portals').style.display = full ? 'none' : 'block';
   $('#key-input').value=getKey();
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
@@ -1404,12 +1446,14 @@ function showToast(msg){
 
 // ── Init ────────────────────────────────────────────────────────────────
 (function init(){
+  const justLoggedIn = captureKeyFromUrl();   // capture a portal-returned key, if any
   applyTheme();
   pickModel(currentModel);
   renderThread(); renderChatList(); updateAccount(); setLanding();
   updateComposerButtons();
   if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');
   if(!getKey()) openKeyModal();
+  else if(justLoggedIn){ showToast('Logged in'); refreshAccountHead(); }
   input.focus();
 })();
 </script>

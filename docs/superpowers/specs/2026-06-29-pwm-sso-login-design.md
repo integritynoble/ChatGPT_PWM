@@ -101,3 +101,39 @@ Chat gate (decision #2 + #5): on **send** with no valid key →
 These are captured as constants/config so the buildable parts (UI, callback route,
 chat-gate redirect, SSO return handler) can ship and be unit-verified now, with the
 three values filled in to complete the live round-trip.
+
+---
+
+## REVISION (2026-06-29, after reading platform + portal source)
+
+Reading `pwm_nonprofit_dev/platform/.../routers/auth.py` and `token/backend/app/...`
+changed the picture. The fully-automatic redirect-back is **not implementable from
+`chatgpt-pwm` alone**:
+
+- **`/sso/issue` allowlists exactly one `redirect_uri`** — `token.comparegpt.io/api/auth/pwm-sso`
+  (`config.py: SSO_TOKEN_PORTAL_REDIRECT_URI`); any other `redirect_uri` → 400. So
+  ChatGPT-PWM cannot be the SSO target. The **token portal** is the sole SSO consumer.
+- **The portal session cookie is host-scoped to `token.comparegpt.io`**
+  (`token/backend/app/config.py: cookie_domain = "token.comparegpt.io"`, not
+  `.comparegpt.io`), so `chatgpt.comparegpt.io` cannot read it cross-subdomain.
+
+A true auto-handoff would therefore require changes to **other deployed services**
+(broaden the cookie to `.comparegpt.io` + a CORS key endpoint, OR add an app-login
+redirect endpoint to the portal + allowlist our `redirect_uri` on the platform).
+That is out of scope for a self-contained `chatgpt-pwm` change and touches production
+auth, so it is deferred.
+
+### Implemented scope (self-contained, satisfies the original request)
+1. **Login modal — two portal buttons:** "Log in / get token at token.comparegpt.io"
+   → opens `https://token.comparegpt.io/`; "physicsworldmodel.org" → opens
+   `https://physicsworldmodel.org/`. Helper line: log in there, copy your `sk-pwm-…`
+   key, paste below. Manual key field retained as the primary entry.
+2. **Chat gate:** send with no stored key → `window.location.href =
+   "https://token.comparegpt.io/"` (current-tab redirect, per decision #2).
+3. **Forward-compatible return handler:** on load, if the URL carries
+   `#pwm_key=…`/`#key=…`/`?pwm_key=…` (an `sk-pwm-…` value), store it via `setKey()`,
+   strip it from the URL, and refresh balance — so if the portal later adds an
+   app-callback that redirects back with the key, it works with no further change here.
+
+Backend `/sso/callback` route and the access_token-as-credential path are **deferred**
+until the portal/platform expose an app-login; they are not built now.
