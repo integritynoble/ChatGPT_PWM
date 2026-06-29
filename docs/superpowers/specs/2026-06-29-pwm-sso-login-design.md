@@ -137,3 +137,45 @@ auth, so it is deferred.
 
 Backend `/sso/callback` route and the access_token-as-credential path are **deferred**
 until the portal/platform expose an app-login; they are not built now.
+
+---
+
+## REVISION 2 (2026-06-29) — portal-side app-login BUILT
+
+Built the missing portal endpoint so the handoff is now genuinely automatic. The key
+insight that unblocked it: the platform's exchange already mints **`sk-pwm-`** keys
+(`exchange_internal.py`: `KEY_PREFIX = "sk-pwm-"`) — exactly what ChatGPT-PWM billing
+validates — so the portal can mint one for a logged-in user and hand it back.
+
+**Flow (implemented):**
+```
+[ChatGPT modal] "Continue with token.comparegpt.io" → ssoLogin()
+  → https://token.comparegpt.io/api/auth/app-login?redirect_uri=<chatgpt-origin>/
+    ├─ logged in  → mint sk-pwm- key (consumer_api_key, label "chatgpt")
+    │               → 302 <chatgpt-origin>/#pwm_key=sk-pwm-…
+    │               → captureKeyFromUrl() stores it, scrubs the URL → logged in
+    └─ not logged → 302 /login?next=<app-login-url> → SPA login → finishLogin()
+                    follows next back to /api/auth/app-login → mint → back to ChatGPT
+```
+
+**Changes by repo:**
+- `token/` (portal) — `routers/auth.py`: new `GET /api/auth/app-login` (redirect_uri
+  allowlist → 400; not-authed → `/login?next=`; authed → mint + `#pwm_key=`; mint
+  failure → `#sso_error=mint_failed`). `config.py`:
+  `app_login_allowed_redirects` (the two ChatGPT origins). `frontend/src/views/Login.vue`:
+  `finishLogin()` honors `?next=` (full nav for backend/absolute URLs, SPA router
+  otherwise). Tests: 3 new in `tests/test_auth_routes.py`, all green.
+- `chatgpt-pwm/` — `web/index.html`: `ssoLogin()` points the token.comparegpt.io
+  button at `/api/auth/app-login?redirect_uri=<origin>/`. The existing
+  `captureKeyFromUrl()` already consumes the returned `#pwm_key=`.
+
+**Security:** the minted key rides in the URL **fragment** (not query — not sent to
+servers/logs) and is scrubbed on arrival. The `redirect_uri` exact-match allowlist is
+the control preventing key delivery to an attacker origin.
+
+**Deploy ordering (IMPORTANT):** the portal endpoint must go live **before** the
+ChatGPT button repoint, or the button 404s. Portal deploy is director-gated (per
+`token/SESSION_HISTORY.md`). Both changes are committed on feature branches, unpushed
+and not deployed, pending that sequence. Known limitation: each app-login mints a fresh
+`sk-pwm-` key (the platform mint isn't idempotent); keys are labelled "chatgpt" and
+revocable in the portal Use tab.

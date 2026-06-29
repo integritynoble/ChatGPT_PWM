@@ -32,6 +32,35 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-06-29 — Automatic SSO: portal-side app-login endpoint (cross-repo)
+
+**Request:** "Build the portal-side endpoint too" — complete the automatic key handoff
+that the portal-login buttons couldn't do alone.
+
+**Built** (spec: `docs/superpowers/specs/2026-06-29-pwm-sso-login-design.md`, REVISION 2).
+Unblocking insight: the platform exchange already mints **`sk-pwm-`** keys
+(`exchange_internal.py: KEY_PREFIX="sk-pwm-"`) — exactly what ChatGPT-PWM billing
+validates — so the portal can mint one for a logged-in user and hand it back.
+
+- **`token/` portal** (separate repo): new `GET /api/auth/app-login` — `redirect_uri`
+  exact-match allowlist (→400 otherwise); not-authed → `302 /login?next=…`; authed →
+  mint `sk-pwm-` consumer key (label "chatgpt") → `302 <redirect_uri>#pwm_key=…`; mint
+  failure → `#sso_error=mint_failed`. Config `app_login_allowed_redirects` = the two
+  ChatGPT origins. `Login.vue` `finishLogin()` now honors `?next=` (full nav for
+  backend/absolute URLs). 3 new pytest tests, all green; full suite shows only the 11
+  pre-existing cookie-over-http failures (unchanged from origin/main); frontend builds.
+- **`chatgpt-pwm/`**: `web/index.html` `ssoLogin()` points the token.comparegpt.io
+  button at `/api/auth/app-login?redirect_uri=<origin>/`; existing `captureKeyFromUrl()`
+  consumes the returned `#pwm_key=`. JS syntax OK; headless click → navigates to the
+  correct app-login URL.
+
+**Not deployed / not pushed.** Both changes sit on feature branches. **Deploy order
+matters:** the portal endpoint must be live *before* the ChatGPT button repoint (else
+the button 404s). Portal deploy is director-gated. Until then, the live ChatGPT login
+keeps the previous working behavior (portal buttons → portal root + manual key paste).
+
+---
+
 ## 2026-06-29 — Portal login buttons + "get a token first" chat gate
 
 **Request:** Let ChatGPT-PWM users log in directly via `token.comparegpt.io` /

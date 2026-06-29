@@ -550,7 +550,7 @@
     <p id="settings-desc">Don't have a PWM token? Get one at <a href="https://token.comparegpt.io" target="_blank" rel="noopener" style="color:#7eb6ff;text-decoration:underline">token.comparegpt.io</a>. Then enter your access key below to start chatting.</p>
 
     <div id="login-portals">
-      <button class="btn btn-primary btn-block" onclick="gotoPortal(PWM_PORTAL_URL)">Continue with token.comparegpt.io</button>
+      <button class="btn btn-primary btn-block" onclick="ssoLogin()">Continue with token.comparegpt.io</button>
       <button class="btn btn-ghost btn-block" onclick="gotoPortal(PWM_PLATFORM_URL)">Continue with physicsworldmodel.org</button>
       <div class="or-sep">or paste your key</div>
     </div>
@@ -673,6 +673,14 @@ function gotoPortal(url){
   // the minted key (#pwm_key=…). Harmless extra query param to the portal today.
   try{ const u=new URL(url); u.searchParams.set('return', location.origin + location.pathname); window.location.href = u.toString(); }
   catch(_){ window.location.href = url; }
+}
+// Real SSO: the token portal's /api/auth/app-login mints a consumer sk-pwm- key
+// for the logged-in PWM user and redirects back to this origin with #pwm_key=…
+// (captured by captureKeyFromUrl on load). redirect_uri must exactly match the
+// portal's APP_LOGIN_ALLOWED_REDIRECTS entry for this host.
+function ssoLogin(){
+  const cb = location.origin + '/';
+  window.location.href = PWM_PORTAL_URL.replace(/\/+$/,'') + '/api/auth/app-login?redirect_uri=' + encodeURIComponent(cb);
 }
 // Forward-compatible: if we ever land with a key in the URL (#pwm_key=… / ?pwm_key=…),
 // store it and scrub it from the address bar. Returns true if a key was captured.
