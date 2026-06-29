@@ -32,6 +32,33 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-06-29 — ChatGPT-style "+" tools menu (photos/files · image · web search · deep research)
+
+**Request:** Replicate OpenAI ChatGPT's composer **+** menu. (Decisions: omit the
+connectors — OpenAI Platform/GitHub/Canva/Finances — since they'd need real OAuth
+integrations; Deep research = high-reasoning + web search.)
+
+**Built** (`web/index.html`): the **+** button now opens a ChatGPT-style popup with four
+rows (icon + title + description) and a bottom **"Type to search plugins, files & skills"**
+filter box:
+- **Add photos & files** → existing file picker.
+- **Create image · "Visualize anything"** → toggles `imageGen` (image_generation tool).
+- **Web search · "Find real-time news and info"** → toggles `webSearch` (web_search tool).
+- **Deep research · "Multi-step web research"** → new: forces the request to
+  `gpt-5.5-thinking` (effort=high) **and** `web_search=true`, with a "Researching…" status.
+- Each tool row shows a live **checkmark**; the composer pills (Search/Image + a new
+  **Deep research** pill that appears when active) stay in sync via `syncToolUI()`. The
+  three tools are mutually exclusive. The bottom box filters rows by label/keywords
+  (`filterPlusMenu`), with a "No matches" state. Clicks inside the menu no longer bubble
+  to the document close-handler, so the search box is usable and checkmarks persist.
+
+**Verified:** `node --check` OK; headless (local + live) — 4 items render with
+descriptions, toggles + checkmarks + pills sync, mutual exclusivity holds, filter works
+(`news` → Web search; `zzz` → No matches), zero console errors. Deployed to both live
+dirs; confirmed live on chatgpt.comparegpt.io and chatgpt.platformai.org.
+
+---
+
 ## 2026-06-29 — Three login methods on ChatGPT (Google / token.comparegpt.io / physicsworldmodel.org)
 
 **Request:** "Make chatgpt.comparegpt.io log in by token.comparegpt.io or
