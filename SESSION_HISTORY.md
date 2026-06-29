@@ -6,6 +6,32 @@ PWM exchange — CLI + web replica). Newest entries first. Modeled on the siblin
 
 ---
 
+## Deploy targets (IMPORTANT — there are TWO live web backends)
+
+The web UI (`chatgpt-pwm/web/index.html`) is served by **two independent backends**
+behind nginx. A deploy must copy `index.html` to **both** live dirs or the two public
+domains will drift out of sync (this bit us on 2026-06-29).
+
+| Public domain | nginx → port | Live dir (deploy here) | Backend |
+|---|---|---|---|
+| `chatgpt.comparegpt.io` | `127.0.0.1:8200` | `/home/spiritai/pwm/chatgpt-web` | `chatgpt-pwm.service` (systemd, `WorkingDirectory=…/chatgpt-web`) |
+| `chatgpt.platformai.org` | `127.0.0.1:8201` | `/home/spiritai/pwm/chatgpt-web-dev` | standalone `uvicorn main:app … --port 8201` (cwd `…/chatgpt-web-dev`) |
+
+Canonical git source is `chatgpt-pwm/web/`. To deploy a UI change to both domains:
+
+```bash
+cp chatgpt-pwm/web/index.html /home/spiritai/pwm/chatgpt-web/index.html       # → chatgpt.comparegpt.io
+cp chatgpt-pwm/web/index.html /home/spiritai/pwm/chatgpt-web-dev/index.html   # → chatgpt.platformai.org
+```
+
+No restart needed for `index.html` changes — `main.py` re-reads the file on every
+`GET /`. **Backend** (`main.py` / `*.py`) changes still need a restart:
+`systemctl restart chatgpt-pwm` for the 8200 backend; the 8201 uvicorn must be
+restarted by its own process manager. nginx for both domains sets `proxy_buffering off`
+/ `proxy_cache off` (SSE-friendly), so there's no edge cache to bust.
+
+---
+
 ## 2026-06-29 — PWM-token onboarding reminder in the login modal
 
 **Request:** Resume the ChatGPT session, record history here, and keep PWM ChatGPT at
@@ -14,8 +40,8 @@ PWM, remind them to go to **token.comparegpt.io** to get a PWM token first.
 
 **Starting state**
 - Service healthy: `chatgpt-pwm.service` active, `GET /` → 200 on `127.0.0.1:8200`
-  (nginx → https://chatgpt.platformai.org). `WorkingDirectory=/home/spiritai/pwm/chatgpt-web`
-  (the live deploy copy); canonical git source is `chatgpt-pwm/web/index.html`.
+  (`WorkingDirectory=/home/spiritai/pwm/chatgpt-web`); canonical git source is
+  `chatgpt-pwm/web/index.html`.
 - UI already at strong parity (landing layout, model menu incl. "ChatGPT Thinking",
   search/image tools, reasoning display, vision/PDF/DOCX upload, mobile polish — see
   recent commits). The login modal placeholder is `sk-pwm-…`.
@@ -31,10 +57,16 @@ PWM, remind them to go to **token.comparegpt.io** to get a PWM token first.
 
 **Deploy / verify**
 - `node --check` on the extracted inline script → syntax OK.
-- Deployed by copying `web/index.html` → `/home/spiritai/pwm/chatgpt-web/index.html`
-  (no restart — `main.py` re-reads the file each `GET /`).
-- Headless Chromium against the live service: login modal shows the new copy, the
-  `#settings-desc a` link resolves to `https://token.comparegpt.io`. Screenshot captured.
+- **Discovered there are TWO live web backends** (see the "Deploy targets" reference
+  block at the top of this file). The first deploy only updated `chatgpt-web` (port
+  8200 → `chatgpt.comparegpt.io`); `chatgpt.platformai.org` kept showing the old copy
+  because it's a *separate* uvicorn on port 8201 serving `chatgpt-web-dev`. Confirmed
+  that dev copy was byte-identical to the new file except for the reminder edit, then
+  synced `index.html` to **both** live dirs.
+- Headless Chromium against **both** public domains: login modal shows the new copy and
+  `#settings-desc a` resolves to `https://token.comparegpt.io`. Screenshots captured.
+- Shipped as commit `5893770` (pushed to `origin/main`,
+  integritynoble/ChatGPT_PWM); this deploy-targets note is a follow-up commit.
 
 ---
 
