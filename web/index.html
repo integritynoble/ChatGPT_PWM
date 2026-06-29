@@ -543,7 +543,7 @@
 <div class="overlay" id="settings-overlay">
   <div class="modal">
     <h2 id="settings-title">Log in to ChatGPT</h2>
-    <p id="settings-desc">Enter your access key to start chatting. It's stored only in this browser.</p>
+    <p id="settings-desc">Don't have a PWM token? Get one at <a href="https://token.comparegpt.io" target="_blank" rel="noopener" style="color:#7eb6ff;text-decoration:underline">token.comparegpt.io</a>. Then enter your access key below to start chatting.</p>
 
     <label for="key-input">Access key</label>
     <input id="key-input" type="password" placeholder="sk-pwm-…" autocomplete="off" spellcheck="false">
@@ -1337,9 +1337,11 @@ function openSettings(){
 function openSettingsModal(){
   const full = settingsMode==='full';
   $('#settings-title').textContent = full ? 'Settings' : 'Log in to ChatGPT';
-  $('#settings-desc').textContent = full
-    ? 'Manage your account, appearance, and chats. Everything is stored only in this browser.'
-    : "Enter your access key to start chatting. It's stored only in this browser.";
+  if(full){
+    $('#settings-desc').textContent = 'Manage your account, appearance, and chats. Everything is stored only in this browser.';
+  } else {
+    $('#settings-desc').innerHTML = 'Don\'t have a PWM token? Get one at <a href="https://token.comparegpt.io" target="_blank" rel="noopener" style="color:#7eb6ff;text-decoration:underline">token.comparegpt.io</a>. Then enter your access key below to start chatting.';
+  }
   $('#settings-extra').style.display = full ? 'block' : 'none';
   $('#key-input').value=getKey();
   const sel=$('#model-select');

@@ -6,6 +6,38 @@ PWM exchange — CLI + web replica). Newest entries first. Modeled on the siblin
 
 ---
 
+## 2026-06-29 — PWM-token onboarding reminder in the login modal
+
+**Request:** Resume the ChatGPT session, record history here, and keep PWM ChatGPT at
+parity with the real OpenAI ChatGPT. New ask this session: when users enter ChatGPT of
+PWM, remind them to go to **token.comparegpt.io** to get a PWM token first.
+
+**Starting state**
+- Service healthy: `chatgpt-pwm.service` active, `GET /` → 200 on `127.0.0.1:8200`
+  (nginx → https://chatgpt.platformai.org). `WorkingDirectory=/home/spiritai/pwm/chatgpt-web`
+  (the live deploy copy); canonical git source is `chatgpt-pwm/web/index.html`.
+- UI already at strong parity (landing layout, model menu incl. "ChatGPT Thinking",
+  search/image tools, reasoning display, vision/PDF/DOCX upload, mobile polish — see
+  recent commits). The login modal placeholder is `sk-pwm-…`.
+
+**What changed**
+- **Login modal now onboards new users to the PWM token.** The "Log in to ChatGPT"
+  description (shown whenever no key is set) reads:
+  *"Don't have a PWM token? Get one at **token.comparegpt.io**. Then enter your access
+  key below to start chatting."* — with `token.comparegpt.io` as a clickable link
+  (opens in a new tab). Applied in two places so it survives a re-render:
+  the static `#settings-desc` markup and the login branch of `openSettingsModal()`
+  (the full **Settings** view keeps its own "Manage your account…" copy).
+
+**Deploy / verify**
+- `node --check` on the extracted inline script → syntax OK.
+- Deployed by copying `web/index.html` → `/home/spiritai/pwm/chatgpt-web/index.html`
+  (no restart — `main.py` re-reads the file each `GET /`).
+- Headless Chromium against the live service: login modal shows the new copy, the
+  `#settings-desc a` link resolves to `https://token.comparegpt.io`. Screenshot captured.
+
+---
+
 ## 2026-06-26 — Web UI brought to real-ChatGPT parity
 
 **Request:** "Resume the chatgpt session, refer to claude-pwm, record the history here,
