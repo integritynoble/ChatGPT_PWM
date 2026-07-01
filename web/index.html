@@ -371,6 +371,18 @@
   .ci-field{width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;
             color:var(--text);font-size:13.5px;font-family:var(--font);line-height:1.5;resize:vertical;outline:none;min-height:64px}
   .ci-field:focus{border-color:#7eb6ff}
+  .mem-head{display:flex;align-items:center;justify-content:space-between;margin:16px 0 6px}
+  .mem-toggle{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-2);margin:0;cursor:pointer}
+  .mem-toggle input{width:auto}
+  .mem-list{max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:4px}
+  .mem-row{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:9px;font-size:13px}
+  .mem-row span{flex:1;line-height:1.4}
+  .mem-row button{width:22px;height:22px;border-radius:6px;color:var(--text-3);flex-shrink:0}
+  .mem-row button:hover{background:var(--hover);color:var(--danger)}
+  .mem-empty{font-size:13px;color:var(--text-3);padding:8px 2px}
+  .mem-add-row{display:flex;gap:8px;margin-top:8px}
+  .mem-add-row input{flex:1;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:13px;font-family:var(--font);outline:none}
+  .mem-add-row input:focus{border-color:#7eb6ff}
   .modal input:focus,.modal select:focus{border-color:#7eb6ff}
   .modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
   .seg{display:flex;gap:6px}
@@ -651,6 +663,17 @@
       <label for="ci-style">How would you like ChatGPT to respond?</label>
       <textarea id="ci-style" class="ci-field" rows="3" placeholder="e.g. Be concise and direct. Use headings and code blocks. Skip the pleasantries." spellcheck="false"></textarea>
 
+      <div class="mem-head">
+        <label style="margin:0">Memory</label>
+        <label class="mem-toggle"><input type="checkbox" id="mem-enabled" onchange="toggleMemory(this.checked)"> Enabled</label>
+      </div>
+      <div id="memory-list" class="mem-list"></div>
+      <div class="mem-add-row">
+        <input id="mem-add" placeholder="Add a memory ChatGPT should keep…" onkeydown="if(event.key==='Enter'){event.preventDefault();addMemoryFromUI();}">
+        <button class="btn btn-sm btn-ghost" onclick="addMemoryFromUI()">Add</button>
+      </div>
+      <div style="text-align:right;margin-top:6px"><button class="btn btn-sm btn-ghost" onclick="clearMemoriesFromUI()">Clear all memories</button></div>
+
       <div class="danger-zone">
         <span>Delete all chats on this device</span>
         <button class="btn btn-sm btn-danger" onclick="deleteAllChats()">Delete all</button>
@@ -742,6 +765,9 @@ let activeId = null;
 let projects = JSON.parse(localStorage.getItem('cg_projects')||'[]');
 let activeProject = null;      // project id currently open in the Projects view
 let pendingProjectId = null;   // assign the next new chat to this project
+let gpts = JSON.parse(localStorage.getItem('cg_gpts')||'[]');
+let pendingGptId = null;       // start the next new chat with this custom GPT
+function gptById(id){ return gpts.find(g=>g.id===id); }
 let generating = false;
 let abortCtl = null;
 let currentView = 'chat';
@@ -1558,8 +1584,9 @@ async function streamReply(model, hint){
     }
     return {role:m.role, content:msgText(m)};
   });
-  const ci=customInstructions();                          // user "custom instructions"
-  if(ci) sendMsgs.unshift({role:'system', content:ci});   // backend appends this to its default
+  // System context (GPT persona + custom instructions + memory) — each is a system
+  // message; the backend appends them to its default ChatGPT instructions.
+  systemContext(c).forEach(s=>sendMsgs.unshift({role:'system', content:s}));
   if(hint) sendMsgs.push({role:'user', content:hint});  // transient steering, not stored
 
   // render thread (shows empty target) then stream into the last assistant element
@@ -1574,7 +1601,9 @@ async function streamReply(model, hint){
   setGenerating(true);
   abortCtl=new AbortController();
   let full=''; let firstToken=false; let raf=null; let sources=[]; let thinking=''; let genImage='';
-  const paint=()=>{ md.innerHTML=renderMarkdown(full); md.classList.add('cursor'); scrollBottom(); raf=null; };
+  // Hide any trailing [[memory: …]] marker from the live view (kept out of display).
+  const forDisplay=(t)=>t.replace(/\n*\[\[\s*memory\s*:[^\]]*\]?\]?\s*$/i,'');
+  const paint=()=>{ md.innerHTML=renderMarkdown(forDisplay(full)); md.classList.add('cursor'); scrollBottom(); raf=null; };
 
   try{
     const resp=await fetch('/api/chat',{
@@ -1616,6 +1645,7 @@ async function streamReply(model, hint){
     if(raf) cancelAnimationFrame(raf);
     md.classList.remove('cursor');
     if(full.trim() || genImage){
+      full=captureMemories(full);   // save & strip any [[memory: …]] the model emitted
       target.variants[target.vi].content=full; target.variants[target.vi].ts=now();
       if(sources.length) target.variants[target.vi].sources=sources;
       if(thinking.trim()) target.variants[target.vi].reasoning=thinking;
@@ -1651,7 +1681,7 @@ function openSettingsModal(){
   $('#key-input').value=getKey();
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
-  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; }
+  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; renderMemoryList(); }
   applyTheme();
   $('#settings-overlay').classList.add('open');
   refreshBalance();
@@ -1667,6 +1697,53 @@ function customInstructions(){
   if(about) s+='About the user:\n'+about+'\n\n';
   if(style) s+='How the user wants you to respond:\n'+style;
   return s.trim();
+}
+
+// ── Cross-chat memory ─────────────────────────────────────────────────────
+let memories = JSON.parse(localStorage.getItem('cg_memories')||'[]');
+function memoryEnabled(){ return localStorage.getItem('cg_memory_off')!=='1'; }
+function saveMemories(){ try{ localStorage.setItem('cg_memories', JSON.stringify(memories.slice(-200))); }catch(e){} }
+function addMemory(text){ text=(text||'').trim(); if(!text) return; if(memories.some(m=>m.text===text)) return;
+  memories.push({id:'mem_'+now()+'_'+Math.random().toString(36).slice(2,6), text:text.slice(0,300), ts:now()}); saveMemories(); }
+function deleteMemory(id){ memories=memories.filter(m=>m.id!==id); saveMemories(); }
+function clearMemories(){ memories=[]; saveMemories(); }
+function toggleMemory(on){ localStorage.setItem('cg_memory_off', on?'0':'1'); }
+function renderMemoryList(){
+  const el=$('#memory-list'); if(!el) return;
+  const chk=$('#mem-enabled'); if(chk) chk.checked=memoryEnabled();
+  if(!memories.length){ el.innerHTML='<div class="mem-empty">No memories yet — ChatGPT saves durable facts it learns, or add your own.</div>'; return; }
+  el.innerHTML=memories.slice().reverse().map(m=>`<div class="mem-row"><span>${escapeHtml(m.text)}</span><button title="Forget" onclick="deleteMemoryFromUI('${m.id}')">✕</button></div>`).join('');
+}
+function addMemoryFromUI(){ const i=$('#mem-add'); if(!i) return; addMemory(i.value); i.value=''; renderMemoryList(); }
+function deleteMemoryFromUI(id){ deleteMemory(id); renderMemoryList(); }
+function clearMemoriesFromUI(){ if(memories.length && !confirm('Clear all memories on this device?')) return; clearMemories(); renderMemoryList(); }
+// The memory system message: known memories + how to save new ones.
+function memoryBlock(){
+  if(!memoryEnabled()) return '';
+  let s='You have persistent memory of this user across conversations.';
+  if(memories.length) s+='\nKnown facts about the user:\n'+memories.map(m=>'- '+m.text).join('\n');
+  s+='\n\nIf the user shares a durable fact worth remembering long-term (preferences, '
+    +'identity, ongoing projects), append at the very end of your reply a line formatted '
+    +'EXACTLY as [[memory: <concise fact>]]. It is saved and hidden from the user. Do not '
+    +'repeat facts already known. Never use it for one-off or trivial details.';
+  return s;
+}
+// Parse & strip [[memory: ...]] markers from a finished reply; save any new facts.
+function captureMemories(text){
+  if(!memoryEnabled()) return text;
+  let saved=0;
+  const clean=text.replace(/\[\[\s*memory\s*:\s*([^\]]+?)\s*\]\]/gi, (_,fact)=>{ addMemory(fact); saved++; return ''; });
+  if(saved){ showToast('Memory updated'); }
+  return clean.replace(/\n{3,}/g,'\n\n').trim();
+}
+
+// Combined system context for a conversation: GPT persona + custom instructions + memory.
+function systemContext(c){
+  const out=[];
+  if(c && c.gptId){ const g=gptById(c.gptId); if(g && (g.instructions||g.name)) out.push('You are "'+g.name+'", a custom GPT. '+(g.instructions||'')); }
+  const ci=customInstructions(); if(ci) out.push(ci);
+  const mem=memoryBlock(); if(mem) out.push(mem);
+  return out;
 }
 function saveKey(){
   const k=$('#key-input').value.trim();
