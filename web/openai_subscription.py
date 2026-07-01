@@ -235,7 +235,11 @@ def _default_instructions() -> str:
 def _build_payload(messages: List[dict], model: str, web_search: bool = False,
                    image_gen: bool = False) -> dict:
     instructions, items = _to_responses_input(messages)
-    instructions = instructions or _default_instructions()
+    # A leading system message from the client (e.g. the user's "custom instructions")
+    # is APPENDED to the ChatGPT-style default, not used in its place — so tone, date,
+    # and formatting guidance are preserved alongside the user's preferences.
+    base = _default_instructions()
+    instructions = (base + "\n\n" + instructions).strip() if instructions else base
     if web_search:
         instructions += ("\n\nYou can search the web. Search when it helps, and cite the "
                          "sources you use with inline citations.")

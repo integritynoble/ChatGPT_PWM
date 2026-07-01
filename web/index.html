@@ -336,6 +336,9 @@
   .modal input,.modal select{width:100%;padding:11px 14px;background:var(--bg);border:1px solid var(--border);
                border-radius:10px;color:var(--text);font-size:14px;outline:none}
   .modal input{font-family:var(--mono)}
+  .ci-field{width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;
+            color:var(--text);font-size:13.5px;font-family:var(--font);line-height:1.5;resize:vertical;outline:none;min-height:64px}
+  .ci-field:focus{border-color:#7eb6ff}
   .modal input:focus,.modal select:focus{border-color:#7eb6ff}
   .modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
   .seg{display:flex;gap:6px}
@@ -610,6 +613,11 @@
 
       <label for="model-select">Default model</label>
       <select id="model-select" onchange="setDefaultModel(this.value)"></select>
+
+      <label for="ci-about">Customize ChatGPT — what should ChatGPT know about you?</label>
+      <textarea id="ci-about" class="ci-field" rows="3" placeholder="e.g. I'm a physicist working on world models; prefer SI units." spellcheck="false"></textarea>
+      <label for="ci-style">How would you like ChatGPT to respond?</label>
+      <textarea id="ci-style" class="ci-field" rows="3" placeholder="e.g. Be concise and direct. Use headings and code blocks. Skip the pleasantries." spellcheck="false"></textarea>
 
       <div class="danger-zone">
         <span>Delete all chats on this device</span>
@@ -1379,6 +1387,8 @@ async function streamReply(model, hint){
     }
     return {role:m.role, content:msgText(m)};
   });
+  const ci=customInstructions();                          // user "custom instructions"
+  if(ci) sendMsgs.unshift({role:'system', content:ci});   // backend appends this to its default
   if(hint) sendMsgs.push({role:'user', content:hint});  // transient steering, not stored
 
   // render thread (shows empty target) then stream into the last assistant element
@@ -1470,15 +1480,32 @@ function openSettingsModal(){
   $('#key-input').value=getKey();
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
+  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; }
   applyTheme();
   $('#settings-overlay').classList.add('open');
   refreshBalance();
   $('#key-input').focus();
 }
 function closeSettings(){ $('#settings-overlay').classList.remove('open'); }
+// Build the "custom instructions" system message from the saved fields (or '' if none).
+function customInstructions(){
+  const about=(localStorage.getItem('cg_ci_about')||'').trim();
+  const style=(localStorage.getItem('cg_ci_style')||'').trim();
+  if(!about && !style) return '';
+  let s='';
+  if(about) s+='About the user:\n'+about+'\n\n';
+  if(style) s+='How the user wants you to respond:\n'+style;
+  return s.trim();
+}
 function saveKey(){
   const k=$('#key-input').value.trim();
   if(k) localStorage.setItem('cg_pwm_key',k);
+  // Persist custom instructions when editing full Settings.
+  if(settingsMode==='full'){
+    const a=($('#ci-about')?$('#ci-about').value:'').trim(), st=($('#ci-style')?$('#ci-style').value:'').trim();
+    a ? localStorage.setItem('cg_ci_about',a) : localStorage.removeItem('cg_ci_about');
+    st ? localStorage.setItem('cg_ci_style',st) : localStorage.removeItem('cg_ci_style');
+  }
   updateAccount(); closeSettings();
 }
 function setDefaultModel(id){ pickModel(id); }
