@@ -32,6 +32,35 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-01 — Parity push: Custom instructions, real Library, real Projects
+
+**Request:** Keep closing the gap to OpenAI's ChatGPT. Turned two decorative
+placeholders into real features and added the most-requested missing one.
+
+- **Custom instructions ("Customize ChatGPT")** — Settings gains two fields (what
+  ChatGPT should know about you / how it should respond), stored in localStorage and
+  sent as a leading **system** message. Backend (`openai_subscription._build_payload`)
+  now **appends** a client system message to `_default_instructions()` instead of
+  replacing it, so tone/date/formatting survive. Deployed to **both** backends (systemd
+  `chatgpt-pwm` :8200 + `chatgpt-pwm-dev` :8201, both restarted).
+- **Real Library** — images made with *Create image* now persist in **IndexedDB**
+  (localStorage nulls them for quota) and render as a grid (newest first, prompt as
+  caption) in the Library view; click → lightbox with Download/Delete. Saved on stream
+  completion.
+- **Real Projects** — create projects, add/move/remove chats via the chat ⋯ menu, open
+  a project to see its chats + start chats scoped to it (sidebar Projects = list, click
+  = detail with rename/delete). Persisted in `cg_projects` + `convo.projectId`.
+
+**Verified** (headless, per feature): custom-instructions system message injected +
+backend append; Library persist→grid→lightbox; Projects create→assign→list→detail;
+zero console errors. Commits `6b5bcf9`, `7943a1a`, `91ecb11`; deployed to both live dirs.
+
+**Still not at full parity** (larger lifts, documented): voice mode, Canvas, code
+interpreter, cross-chat memory, connectors (OpenAI Platform/GitHub/Canva/Finances),
+Sora/GPTs (still placeholders), server-side cross-device sync.
+
+---
+
 ## 2026-06-29 — ChatGPT-style "+" tools menu (photos/files · image · web search · deep research)
 
 **Request:** Replicate OpenAI ChatGPT's composer **+** menu. (Decisions: omit the
