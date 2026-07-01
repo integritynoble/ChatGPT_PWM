@@ -174,6 +174,21 @@
   body.viewing #dock{display:none}
   body.viewing #greeting{display:none}
   .nav-item.active{background:var(--hover)}
+  /* Library gallery */
+  .lib-wrap{max-width:var(--maxw);margin:0 auto;padding:20px 16px 60px}
+  .lib-title{font-size:24px;font-weight:600;margin:8px 4px 18px}
+  .lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+  .lib-cell{cursor:pointer;border-radius:12px;overflow:hidden;background:var(--hover);position:relative;margin:0}
+  .lib-cell img{width:100%;aspect-ratio:1;object-fit:cover;display:block;transition:transform .2s}
+  .lib-cell:hover img{transform:scale(1.03)}
+  .lib-cell figcaption{position:absolute;left:0;right:0;bottom:0;padding:14px 8px 6px;font-size:11px;color:#fff;
+        background:linear-gradient(transparent,rgba(0,0,0,.72));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* lightbox */
+  #lightbox .lightbox-inner{display:flex;flex-direction:column;gap:12px;align-items:center;max-width:92vw;max-height:92vh}
+  #lightbox img{max-width:min(88vw,900px);max-height:74vh;border-radius:12px;object-fit:contain;background:var(--hover)}
+  .lightbox-cap{color:var(--text-2);font-size:13px;max-width:700px;text-align:center;line-height:1.5}
+  .lightbox-bar{display:flex;gap:8px;align-items:center}
+  #lightbox-dl{text-decoration:none;display:inline-flex;align-items:center}
   body.landing #scroll{flex:0 0 auto}
   body.landing #thread{display:none}
   body.landing #dock{flex:1;display:flex;flex-direction:column;justify-content:center;padding-bottom:13vh}
@@ -633,6 +648,19 @@
 </div>
 
 <div id="toast"></div>
+
+<!-- Library lightbox -->
+<div class="overlay" id="lightbox" onclick="if(event.target===this)closeLightbox()">
+  <div class="lightbox-inner">
+    <img id="lightbox-img" src="" alt="">
+    <div class="lightbox-cap" id="lightbox-cap"></div>
+    <div class="lightbox-bar">
+      <a class="btn btn-sm btn-ghost" id="lightbox-dl" href="#" download>Download</a>
+      <button class="btn btn-sm btn-danger" id="lightbox-del">Delete</button>
+      <button class="btn btn-sm btn-ghost" onclick="closeLightbox()">Close</button>
+    </div>
+  </div>
+</div>
 
 <!-- drag-and-drop overlay -->
 <div id="drop-overlay">
@@ -1096,9 +1124,47 @@ function showView(v){
   $('#share-btn').style.display='none';
   $('#model-btn').style.display='none'; $('#view-title').style.display='inline'; $('#view-title').textContent=FEATURES[v].t;
   const f=FEATURES[v];
-  thread.innerHTML=`<div class="feature"><div class="ficon">${f.icon}</div><h2>${f.t}</h2><p>${f.d}</p></div>`;
+  if(v==='library'){ renderLibrary(); } else {
+    thread.innerHTML=`<div class="feature"><div class="ficon">${f.icon}</div><h2>${f.t}</h2><p>${f.d}</p></div>`;
+  }
   renderChatList();
 }
+
+// ── Library (images made with "Create image") — stored in IndexedDB, since
+//    localStorage nulls generated images to stay under quota. ────────────────
+let _libDB=null;
+function libDB(){
+  return _libDB || (_libDB=new Promise((res,rej)=>{
+    const r=indexedDB.open('cg_library',1);
+    r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains('images')) db.createObjectStore('images',{keyPath:'id'}); };
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+  }));
+}
+function lastUserText(c){ for(let i=c.messages.length-1;i>=0;i--){ if(c.messages[i].role==='user') return msgText(c.messages[i]); } return ''; }
+async function librarySave(url, caption, chatId){
+  try{ const db=await libDB(); db.transaction('images','readwrite').objectStore('images')
+        .put({id:'img_'+now()+'_'+Math.random().toString(36).slice(2,7), url, caption:(caption||'').slice(0,220), chatId, ts:now()});
+  }catch(e){}
+}
+function libraryAll(){ return libDB().then(db=>new Promise(res=>{ const rq=db.transaction('images','readonly').objectStore('images').getAll(); rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>res([]); })).catch(()=>[]); }
+function libraryDelete(id){ return libDB().then(db=>db.transaction('images','readwrite').objectStore('images').delete(id)).catch(()=>{}); }
+async function renderLibrary(){
+  const ic=FEATURES.library.icon;
+  thread.innerHTML=`<div class="feature"><div class="ficon">${ic}</div><h2>Library</h2><p>Loading…</p></div>`;
+  const imgs=(await libraryAll()).sort((a,b)=>b.ts-a.ts);
+  if(!imgs.length){ thread.innerHTML=`<div class="feature"><div class="ficon">${ic}</div><h2>Library</h2><p>Images you create with ChatGPT will appear here.</p></div>`; return; }
+  const cells=imgs.map(im=>`<figure class="lib-cell" onclick="libraryOpen('${im.id}')"><img src="${im.url}" loading="lazy" alt=""><figcaption>${escapeHtml(im.caption||'')}</figcaption></figure>`).join('');
+  thread.innerHTML=`<div class="lib-wrap"><h2 class="lib-title">Library</h2><div class="lib-grid">${cells}</div></div>`;
+}
+async function libraryOpen(id){
+  const im=(await libraryAll()).find(x=>x.id===id); if(!im) return;
+  $('#lightbox-img').src=im.url;
+  $('#lightbox-cap').textContent=im.caption||'';
+  const dl=$('#lightbox-dl'); dl.href=im.url; dl.download=(im.caption||'image').replace(/[^\w.-]+/g,'_').slice(0,40)+'.png';
+  $('#lightbox-del').onclick=async()=>{ await libraryDelete(id); closeLightbox(); renderLibrary(); };
+  $('#lightbox').classList.add('open');
+}
+function closeLightbox(){ $('#lightbox').classList.remove('open'); $('#lightbox-img').src=''; }
 
 // ── Render thread from model ────────────────────────────────────────────
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
@@ -1448,7 +1514,7 @@ async function streamReply(model, hint){
       target.variants[target.vi].content=full; target.variants[target.vi].ts=now();
       if(sources.length) target.variants[target.vi].sources=sources;
       if(thinking.trim()) target.variants[target.vi].reasoning=thinking;
-      if(genImage) target.variants[target.vi].image=genImage;
+      if(genImage){ target.variants[target.vi].image=genImage; librarySave(genImage, lastUserText(c), c.id); }
       c.ts=now();
       persist(); renderChatList(); renderThread();
     } else {
