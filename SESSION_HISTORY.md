@@ -32,6 +32,45 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-02 — Neural voices: server-side TTS (/api/tts via edge-tts)
+
+**Request:** upgrade voice mode / read-aloud from the browser's basic
+`speechSynthesis` to neural voices — needs a server-side TTS endpoint.
+
+**Backend** (`web/main.py`, BOTH backends restarted): new **`POST /api/tts`**
+`{text, voice}` → streams `audio/mpeg` from **edge-tts** (Microsoft neural voices —
+free, no API key; `pip install --user --break-system-packages edge-tts`, v7.2.8, into
+the same `~/.local` site-packages the services use). Same PWM-key gate as `/api/chat`
+(401 without/invalid key when `PWM_KEY_REQUIRED=1`; balance pre-check; TTS itself is
+not billed). Voice allowlist {Jenny, Guy, Aria en-US; Sonia en-GB} — unknown voice
+falls back to Jenny; text capped at 6000 chars; empty text → 400; missing edge-tts →
+503 (UI falls back cleanly).
+
+**Frontend** (`web/index.html`): `ttsPlay()` fetches `/api/tts` → blob → `Audio`
+playback; **`voiceSpeak()` (voice mode) and `readAloud()` now use neural first** and
+fall back to `speechSynthesis` when the endpoint fails/404s/returns empty (or when the
+user picks "Browser voice"). Shared `ttsPlain()` markdown-stripper, `stopTts()`
+(stops audio + cancels synthesis; wired into voice-mode end), `ttsBusy()` used by
+voice-mode mute logic. **Settings gains a "Voice" picker** (`cg_tts_voice`): 4 neural
+voices + "Browser voice (basic)".
+
+**Deploy note (8201):** the standalone dev uvicorn was parented to an old Claude
+session; it's now relaunched detached (`setsid nohup … > uvicorn.log`) from
+`chatgpt-web-dev` with its captured env (`PWM_KEY_REQUIRED=1`,
+`PWM_PLATFORM_URL=http://172.17.0.1:8101`), so it survives session exits. 8200
+restarted via `sudo -n systemctl restart chatgpt-pwm`.
+
+**Verified:** local uvicorn — `/api/tts` 200 with real MPEG audio (33 KB for one
+sentence), 400 empty text, unknown-voice fallback; headless Chromium
+(`--autoplay-policy=no-user-gesture-required`) against the real endpoint: 12/12 —
+neural playback starts/ends/cleans up, read-aloud button toggles play/stop, "browser"
+pref skips neural, Settings picker hydrates, zero console errors. Regressions all
+green (voice 20, canvas 33, GPTs 16, archive 14). Live on BOTH domains: `/health` 200,
+`/api/tts` + `/api/chat` key gates 401 as designed, UI markers served. (Full live
+audio needs a valid `sk-pwm-` key — generation itself proven locally on the same code.)
+
+---
+
 ## 2026-07-02 — Canvas (side-by-side collaborative editor)
 
 **Request:** "Please build Canvas next."

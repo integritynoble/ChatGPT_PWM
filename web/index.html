@@ -793,6 +793,15 @@
       <label for="model-select">Default model</label>
       <select id="model-select" onchange="setDefaultModel(this.value)"></select>
 
+      <label for="tts-voice-select">Voice (voice mode &amp; read aloud)</label>
+      <select id="tts-voice-select" onchange="localStorage.setItem('cg_tts_voice',this.value)">
+        <option value="en-US-JennyNeural">Jenny — neural (default)</option>
+        <option value="en-US-GuyNeural">Guy — neural</option>
+        <option value="en-US-AriaNeural">Aria — neural</option>
+        <option value="en-GB-SoniaNeural">Sonia — neural, British</option>
+        <option value="browser">Browser voice (basic)</option>
+      </select>
+
       <label for="ci-about">Customize ChatGPT — what should ChatGPT know about you?</label>
       <textarea id="ci-about" class="ci-field" rows="3" placeholder="e.g. I'm a physicist working on world models; prefer SI units." spellcheck="false"></textarea>
       <label for="ci-style">How would you like ChatGPT to respond?</label>
@@ -1938,16 +1947,63 @@ function toggleDictate(){
   try{ rec.start(); reccing=true; if(micBtn) micBtn.classList.add('ok'); }catch(e){}
 }
 
-// Read aloud (Web Speech synthesis)
+// ── Text-to-speech: neural voices via /api/tts (edge-tts on the server),
+// falling back to the browser's speechSynthesis when unavailable.
+let ttsAudio=null;
+function ttsVoice(){ return localStorage.getItem('cg_tts_voice')||'en-US-JennyNeural'; }
+function ttsBusy(){ return (ttsAudio && !ttsAudio.paused) || !!(window.speechSynthesis && window.speechSynthesis.speaking); }
+function stopTts(){
+  if(ttsAudio){ const a=ttsAudio; ttsAudio=null; try{a.pause();}catch(e){} if(a.src&&a.src.startsWith('blob:')) URL.revokeObjectURL(a.src); }
+  try{ window.speechSynthesis && window.speechSynthesis.cancel(); }catch(e){}
+}
+// Play text through the neural endpoint. Resolves true if playback started
+// (onend fires when it finishes); false → caller should fall back.
+async function ttsPlay(text, onend){
+  if(ttsVoice()==='browser') return false;
+  try{
+    const resp=await fetch('/api/tts',{method:'POST',
+      headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
+      body:JSON.stringify({text:(text||'').slice(0,6000), voice:ttsVoice()})});
+    if(!resp.ok) return false;
+    const blob=await resp.blob();
+    if(!blob.size) return false;
+    const a=new Audio(URL.createObjectURL(blob));
+    ttsAudio=a;
+    a.onended=()=>{ if(ttsAudio===a){ URL.revokeObjectURL(a.src); ttsAudio=null; } onend&&onend(); };
+    a.onerror =()=>{ if(ttsAudio===a) ttsAudio=null; onend&&onend(); };
+    await a.play();
+    return true;
+  }catch(e){ return false; }
+}
+// Speak with browser TTS (fallback path).
+function browserSpeak(plain, onend){
+  const synth=window.speechSynthesis; if(!synth){ onend&&onend(); return; }
+  const u=new SpeechSynthesisUtterance(plain);
+  u.onend=()=>onend&&onend(); u.onerror=()=>onend&&onend();
+  try{ synth.speak(u); }catch(e){ onend&&onend(); }
+}
+function ttsPlain(text){
+  return (text||'')
+    .replace(/```[\s\S]*?```/g,' Code block omitted. ')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g,' image ')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g,'$1')
+    .replace(/https?:\/\/\S+/g,' link ')
+    .replace(/\[\[[^\]]*\]\]/g,' ')
+    .replace(/[#*`_>~|]/g,'')
+    .trim();
+}
+
+// Read aloud (neural first, browser fallback)
 let speakBtn=null;
 function readAloud(text, btn){
-  const synth=window.speechSynthesis; if(!synth) return;
-  const wasThis = synth.speaking && speakBtn===btn;
-  if(synth.speaking){ synth.cancel(); if(speakBtn) speakBtn.classList.remove('ok'); speakBtn=null; if(wasThis) return; }
-  const plain=(text||'').replace(/```[\s\S]*?```/g,' ').replace(/[#*`_>~\[\]()]/g,'');
-  const u=new SpeechSynthesisUtterance(plain);
-  u.onend=()=>{ btn.classList.remove('ok'); speakBtn=null; };
-  try{ synth.speak(u); btn.classList.add('ok'); speakBtn=btn; }catch(e){}
+  const wasThis = ttsBusy() && speakBtn===btn;
+  stopTts();
+  if(speakBtn){ speakBtn.classList.remove('ok'); speakBtn=null; }
+  if(wasThis) return;
+  const plain=ttsPlain(text); if(!plain) return;
+  btn.classList.add('ok'); speakBtn=btn;
+  const done=()=>{ if(speakBtn===btn){ btn.classList.remove('ok'); speakBtn=null; } };
+  ttsPlay(plain, done).then(ok=>{ if(!ok){ if(speakBtn!==btn) return; browserSpeak(plain, done); } });
 }
 
 // ── Voice conversation mode ─────────────────────────────────────────────
@@ -1969,7 +2025,7 @@ function closeVoiceMode(){
   if(!voiceActive) return;
   voiceActive=false;
   try{ voiceRec&&voiceRec.abort(); }catch(e){} voiceRec=null;
-  try{ window.speechSynthesis.cancel(); }catch(e){}
+  stopTts();
   $('#voice-overlay').classList.remove('open');
   renderThread(); renderChatList(); setLanding();
 }
@@ -2009,27 +2065,19 @@ async function voiceSend(text){
   else voiceListen();
 }
 function voiceSpeak(text){
-  const plain=(text||'')
-    .replace(/```[\s\S]*?```/g,' Code block omitted. ')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g,' image ')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g,'$1')
-    .replace(/https?:\/\/\S+/g,' link ')
-    .replace(/[#*`_>~|]/g,'')
-    .trim();
+  const plain=ttsPlain(text);
   if(!plain){ voiceListen(); return; }
   voiceStatus('speaking','Speaking…'); $('#vo-transcript').textContent='';
-  const u=new SpeechSynthesisUtterance(plain);
-  u.onend=()=>{ if(!voiceActive) return; if(!voiceMuted) voiceListen(); else voiceStatus('idle','Muted'); };
-  u.onerror=()=>{ if(voiceActive && !voiceMuted) voiceListen(); };
-  try{ window.speechSynthesis.speak(u); }catch(e){ if(voiceActive) voiceListen(); }
+  const done=()=>{ if(!voiceActive) return; if(!voiceMuted) voiceListen(); else voiceStatus('idle','Muted'); };
+  ttsPlay(plain, done).then(ok=>{ if(!ok && voiceActive) browserSpeak(plain, done); });
 }
 function voiceMuteToggle(){
   voiceMuted=!voiceMuted;
   syncVoiceMuteUI();
   if(voiceMuted){
     try{ voiceRec&&voiceRec.abort(); }catch(e){} voiceRec=null;
-    if(!window.speechSynthesis.speaking) voiceStatus('idle','Muted');
-  } else if(!window.speechSynthesis.speaking && !generating){
+    if(!ttsBusy()) voiceStatus('idle','Muted');
+  } else if(!ttsBusy() && !generating){
     voiceListen();
   }
 }
@@ -2197,7 +2245,7 @@ function openSettingsModal(){
   $('#key-input').value=getKey();
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
-  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; renderMemoryList(); renderArchivedList(); }
+  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); renderMemoryList(); renderArchivedList(); }
   applyTheme();
   $('#settings-overlay').classList.add('open');
   refreshBalance();

@@ -144,6 +144,63 @@ async def models():
     return {"models": AVAILABLE_MODELS}
 
 
+# ── Text-to-speech (neural voices via edge-tts; used by voice mode / read-aloud) ──
+
+try:
+    import edge_tts as _edge_tts
+except ImportError:  # endpoint degrades to 503; the UI falls back to browser TTS
+    _edge_tts = None
+
+TTS_VOICES = {
+    "en-US-JennyNeural",
+    "en-US-GuyNeural",
+    "en-US-AriaNeural",
+    "en-GB-SoniaNeural",
+}
+TTS_DEFAULT_VOICE = "en-US-JennyNeural"
+TTS_MAX_CHARS = 6000
+
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = TTS_DEFAULT_VOICE
+
+
+@app.post("/api/tts")
+async def tts(req: Request, body: TTSRequest):
+    if _edge_tts is None:
+        raise HTTPException(status_code=503, detail="TTS engine not available on the server.")
+
+    pwm_key = (
+        req.headers.get("X-PWM-Key")
+        or req.headers.get("Authorization", "").removeprefix("Bearer ")
+    ).strip() or None
+    if PWM_KEY_REQUIRED and not pwm_key:
+        raise HTTPException(status_code=401, detail="Missing PWM key. Set X-PWM-Key header.")
+    if pwm_key:
+        check = await pwm_billing.check_balance(pwm_key)
+        if not check.valid:
+            code = 402 if "balance" in check.reason.lower() else 401
+            raise HTTPException(status_code=code, detail=check.reason)
+
+    text = body.text.strip()[:TTS_MAX_CHARS]
+    if not text:
+        raise HTTPException(status_code=400, detail="No text to speak.")
+    voice = body.voice if body.voice in TTS_VOICES else TTS_DEFAULT_VOICE
+
+    async def gen() -> AsyncIterator[bytes]:
+        communicate = _edge_tts.Communicate(text, voice)
+        async for chunk in communicate.stream():
+            if chunk["type"] == "audio":
+                yield chunk["data"]
+
+    return StreamingResponse(
+        gen(),
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/balance")
 async def balance(req: Request):
     pwm_key = (
