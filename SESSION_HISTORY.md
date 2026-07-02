@@ -32,6 +32,42 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-02 — Voice conversation mode
+
+**Request:** "Please build voice conversation mode next."
+
+**Built** (`web/index.html` only — no backend changes): a client-side voice loop in
+ChatGPT's full-screen voice UI. Since the backend is a text SSE stream (no realtime
+audio model), the loop is: **listen** (Web Speech `SpeechRecognition`, non-continuous
+so silence ends the turn) → **send** through the normal `/api/chat` stream (message
+persists into the active chat like a typed turn, incl. GPT persona / custom
+instructions / memory) → **speak** the reply (`speechSynthesis`, markdown stripped:
+code blocks → "code block omitted", links → text/"link") → **listen** again.
+
+- **Entry:** a waveform **Voice mode** button in the composer (shown when the input is
+  empty and both speech APIs exist, next to the dictate mic). Gated on a PWM key like
+  send. `#voice-overlay`: blue radial-gradient orb with per-state animation
+  (listening=pulse, thinking=dim, speaking=bounce, idle=faded), status line
+  (Listening…/Thinking…/Speaking…/Muted), live interim transcript, and two round
+  controls — **mute** (aborts recognition; unmute resumes) and red **✕ end**
+  (also Esc). Recognition is deliberately NOT active while speaking, so the TTS
+  audio can't feed back into the mic.
+- Exiting re-renders the thread, so the spoken conversation is visible in the chat.
+
+**Verified:** `node --check` OK; headless Chromium with mocked
+SpeechRecognition/speechSynthesis + a real SSE `/api/chat` stub — 20/20 checks
+(button→overlay→listen, interim transcript, Thinking→Speaking transitions, reply
+spoken, auto re-listen, both turns persisted to the convo, mute/unmute, Esc + ✕ end,
+zero console errors). GPTs (16) + archive/shortcuts (14) regressions still green.
+Deployed to both live dirs; live smoke on both domains: button renders, overlay opens
+to Listening…, Esc closes, zero console errors.
+
+**Notes / limits:** needs a browser with `SpeechRecognition` (Chrome/Edge; the button
+hides elsewhere); en-US recognition; voice is the browser's default TTS voice — not
+OpenAI's neural voices; no barge-in while speaking.
+
+---
+
 ## 2026-07-02 — Parity push: GPTs, archive chats, keyboard shortcuts
 
 **Request:** "Make sure this ChatGPT based on PWM is the same as ChatGPT from OpenAI"
