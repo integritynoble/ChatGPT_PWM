@@ -144,6 +144,100 @@ async def models():
     return {"models": AVAILABLE_MODELS}
 
 
+# ── Server-side sync (cross-device chat history) ─────────────────────────
+# Per-item newest-wins merge keyed by the PWM key. Both live backends point
+# at the same SQLite file (WAL), so the two public domains stay in sync too.
+
+import hashlib
+import sqlite3
+
+SYNC_DB_PATH = os.environ.get(
+    "CHATGPT_SYNC_DB", os.path.expanduser("~/pwm/chatgpt-sync/sync.db")
+)
+SYNC_KINDS = {"convo", "project", "gpt", "kv"}
+SYNC_MAX_ITEM_BYTES = 400_000     # one chat / one kv blob
+SYNC_MAX_TOTAL_BYTES = 8_000_000  # whole push
+SYNC_MAX_ITEMS = 1200
+
+
+def _sync_db() -> sqlite3.Connection:
+    os.makedirs(os.path.dirname(SYNC_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(SYNC_DB_PATH, timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS items(
+            user TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
+            ts INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, data TEXT,
+            PRIMARY KEY(user, kind, id))"""
+    )
+    return conn
+
+
+class SyncItem(BaseModel):
+    kind: str
+    id: str
+    ts: int
+    deleted: int = 0
+    data: Optional[str] = None  # JSON-encoded payload; None for tombstones
+
+
+class SyncRequest(BaseModel):
+    items: List[SyncItem] = []
+
+
+@app.post("/api/sync")
+async def sync(req: Request, body: SyncRequest):
+    pwm_key = (
+        req.headers.get("X-PWM-Key")
+        or req.headers.get("Authorization", "").removeprefix("Bearer ")
+    ).strip() or None
+    if not pwm_key:
+        raise HTTPException(status_code=401, detail="Sync requires a PWM key.")
+    check = await pwm_billing.check_balance(pwm_key)
+    if not check.valid:
+        raise HTTPException(status_code=401, detail=check.reason)
+    user = hashlib.sha256(pwm_key.encode()).hexdigest()
+
+    if len(body.items) > SYNC_MAX_ITEMS:
+        raise HTTPException(status_code=413, detail="Too many sync items.")
+    total = sum(len(it.data or "") for it in body.items)
+    if total > SYNC_MAX_TOTAL_BYTES:
+        raise HTTPException(status_code=413, detail="Sync payload too large.")
+
+    conn = _sync_db()
+    try:
+        for it in body.items:
+            if it.kind not in SYNC_KINDS or not it.id:
+                continue
+            if it.data and len(it.data) > SYNC_MAX_ITEM_BYTES:
+                continue  # skip oversize items rather than failing the sync
+            row = conn.execute(
+                "SELECT ts FROM items WHERE user=? AND kind=? AND id=?",
+                (user, it.kind, it.id),
+            ).fetchone()
+            if row is None or it.ts > row[0]:
+                conn.execute(
+                    "INSERT INTO items(user,kind,id,ts,deleted,data) VALUES(?,?,?,?,?,?) "
+                    "ON CONFLICT(user,kind,id) DO UPDATE SET "
+                    "ts=excluded.ts, deleted=excluded.deleted, data=excluded.data",
+                    (user, it.kind, it.id, it.ts, 1 if it.deleted else 0,
+                     None if it.deleted else it.data),
+                )
+        conn.commit()
+        rows = conn.execute(
+            "SELECT kind,id,ts,deleted,data FROM items WHERE user=?", (user,)
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return {
+        "items": [
+            {"kind": k, "id": i, "ts": t, "deleted": d, "data": (None if d else data)}
+            for (k, i, t, d, data) in rows
+        ]
+    }
+
+
 # ── Text-to-speech (neural voices via edge-tts; used by voice mode / read-aloud) ──
 
 try:

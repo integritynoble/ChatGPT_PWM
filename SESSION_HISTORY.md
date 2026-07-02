@@ -32,6 +32,57 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-02 — Server-side sync (cross-device history via /api/sync)
+
+**Request:** "Please build server-side sync next" — the last big parity gap.
+
+**Backend** (`web/main.py`): **`POST /api/sync`** — per-item, newest-wins merge keyed
+by `sha256(PWM key)`. SQLite at `~/pwm/chatgpt-sync/sync.db` (WAL; overridable via
+`CHATGPT_SYNC_DB`) — **both backends share the file**, so the two public domains sync
+with each other as well as across devices. Table
+`items(user, kind, id, ts, deleted, data)`; kinds: `convo`, `project`, `gpt`, `kv`
+(`kv/memories`, `kv/ci`). Client pushes its items; server upserts where incoming
+`ts` is newer and returns the user's full merged state. Deletions are **tombstones**
+(`deleted=1`, data nulled) kept forever so a stale device can never resurrect them.
+Requires a valid PWM key (401 otherwise; balance pre-check, not billed). Caps:
+400 KB/item (oversize skipped, sync still succeeds), 8 MB/push, 1200 items.
+
+**Frontend** (`web/index.html`): `collectSyncItems()` ships chats (images/data-URLs
+stripped via `stripConvoForSync`), projects, GPTs, memories+enabled flag, custom
+instructions, and pending tombstones. `syncNow()` = push+pull in one call;
+`applySync()` adopts the merged state (skipped while `generating` so a streaming
+reply is never clobbered), rebuilds the UI, and drops the active view back to landing
+if the open chat was deleted elsewhere. Triggers: **2.5 s debounce after any persist**
+(`persist`/`saveProjects`/`saveGpts`/`saveMemories` all schedule), on load (~800 ms),
+on tab focus, every 90 s, and **on login** (`saveKey` pulls the account's state).
+Sync-relevant mutations now bump an `uts` stamp (rename, archive/unarchive, ratings,
+move-to-project, canvas edits/title, GPT/project edits) — `ts` still drives sidebar
+order, `max(ts,uts)` drives merge. Tombstones recorded in `delConvo`,
+`deleteAllChats`, `deleteProject`, `deleteGptFromUI` (`cg_tombstones`, cleared after
+a successful push). Memories/CI use `cg_mem_ts`/`cg_ci_ts` for LWW.
+
+**nginx:** both chatgpt vhosts had the default 1 M `client_max_body_size` (a latent
+413 risk for image uploads too) — now `20M` on both; `nginx -t` + reload clean.
+
+**Deploy gotcha discovered:** killing the 8201 uvicorn gets it **respawned by a
+supervisor** (parented to init, correct env/cwd) — so a plain kill after copying
+files IS the restart procedure; my manual relaunch just lost the bind race and left
+strays (cleaned up). 8200 restarted via `sudo -n systemctl restart chatgpt-pwm`.
+
+**Verified:** py_compile + node --check OK; curl: 401 no key, push/merge round-trip
+200; headless **two-device test** (fresh contexts, same key, local backend with scratch
+DB + fail-open billing): 11/11 — B receives A's chat/project/memory/custom
+instructions, rename on B propagates to A, deletion on A reaches B, **stale-copy
+resurrection blocked by tombstone**, different key fully isolated, zero console
+errors. All regressions green (canvas 33, voice 20, GPTs 16, archive 14 — their test
+stubs gained an /api/sync echo). Live: `/api/sync` routed + key-gated [401] on both
+domains, sync UI markers served, `/health` 200.
+
+**Remaining gaps** now: code interpreter, connectors, Sora, hosted share links
+(sync's server store is the natural foundation for share links next).
+
+---
+
 ## 2026-07-02 — Neural voices: server-side TTS (/api/tts via edge-tts)
 
 **Request:** upgrade voice mode / read-aloud from the browser's basic

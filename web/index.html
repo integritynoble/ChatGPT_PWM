@@ -1198,6 +1198,7 @@ function persist(){
       localStorage.setItem('cg_convos', JSON.stringify(slim));
     }catch(_){}
   }
+  scheduleSync();
 }
 
 function ensureConvo(){
@@ -1280,13 +1281,13 @@ function chatItemMenu(id, anchor){
 
 function archiveConvo(id){
   const c=convos.find(c=>c.id===id); if(!c) return;
-  c.archived=true; persist();
+  c.archived=true; touchConvo(c); persist();
   if(activeId===id){ activeId=null; renderThread(); setLanding(); }
   renderChatList(); showToast('Chat archived');
 }
 function unarchiveConvo(id){
   const c=convos.find(c=>c.id===id); if(!c) return;
-  c.archived=false; persist(); renderChatList(); renderArchivedList(); showToast('Chat restored');
+  c.archived=false; touchConvo(c); persist(); renderChatList(); renderArchivedList(); showToast('Chat restored');
 }
 // "Archived chats" manager inside Settings.
 function renderArchivedList(){
@@ -1335,13 +1336,14 @@ function startRename(id){
   inp.className='title-input'; inp.value=c.title||'';
   t.replaceWith(inp); inp.focus(); inp.select();
   let done=false;
-  const commit=()=>{ if(done) return; done=true; c.title=(inp.value.trim()||c.title||'New chat'); persist(); renderChatList(); };
+  const commit=()=>{ if(done) return; done=true; c.title=(inp.value.trim()||c.title||'New chat'); touchConvo(c); persist(); renderChatList(); };
   inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();commit();} if(e.key==='Escape'){done=true;renderChatList();} });
   inp.addEventListener('blur',commit);
   inp.addEventListener('click',e=>e.stopPropagation());
 }
 
 function delConvo(id){
+  addTombstone('convo', id);
   convos=convos.filter(c=>c.id!==id); persist();
   if(activeId===id){ activeId=null; closeCanvas(); renderThread(); }
   renderChatList(); setLanding();
@@ -1469,7 +1471,7 @@ async function libraryOpen(id){
 function closeLightbox(){ $('#lightbox').classList.remove('open'); $('#lightbox-img').src=''; }
 
 // ── Projects (group related chats) ───────────────────────────────────────
-function saveProjects(){ try{ localStorage.setItem('cg_projects', JSON.stringify(projects)); }catch(e){} }
+function saveProjects(){ try{ localStorage.setItem('cg_projects', JSON.stringify(projects)); }catch(e){} scheduleSync(); }
 function projectById(id){ return projects.find(p=>p.id===id); }
 function projectChats(id){ return convos.filter(c=>c.projectId===id).sort((a,b)=>(b.ts||0)-(a.ts||0)); }
 function newProjectFromUI(){
@@ -1477,9 +1479,10 @@ function newProjectFromUI(){
   const p={id:'proj_'+now()+'_'+Math.random().toString(36).slice(2,6), name, ts:now()};
   projects.push(p); saveProjects(); openProject(p.id);
 }
-function renameProject(id){ const p=projectById(id); if(!p) return; const n=(prompt('Rename project', p.name)||'').trim(); if(!n) return; p.name=n; saveProjects(); (activeProject===id?renderProjectDetail(id):renderProjects()); }
+function renameProject(id){ const p=projectById(id); if(!p) return; const n=(prompt('Rename project', p.name)||'').trim(); if(!n) return; p.name=n; p.uts=now(); saveProjects(); (activeProject===id?renderProjectDetail(id):renderProjects()); }
 function deleteProject(id){
   if(!confirm('Delete this project? Its chats are kept (just unassigned).')) return;
+  addTombstone('project', id);
   projects=projects.filter(p=>p.id!==id);
   convos.forEach(c=>{ if(c.projectId===id) c.projectId=null; });
   saveProjects(); persist(); activeProject=null; renderProjects(); renderChatList();
@@ -1488,7 +1491,7 @@ function openProject(id){ activeProject=id; renderProjectDetail(id); }
 function newChatInProject(id){ pendingProjectId=id; showView('chat'); input.focus(); }
 function moveChatToProject(chatId, projId){
   const c=convos.find(c=>c.id===chatId); if(!c) return;
-  c.projectId=projId||null; persist(); renderChatList();
+  c.projectId=projId||null; touchConvo(c); persist(); renderChatList();
   if(currentView==='projects'){ activeProject?renderProjectDetail(activeProject):renderProjects(); }
 }
 function renderProjects(){
@@ -1528,7 +1531,7 @@ function renderProjectDetail(id){
 }
 
 // ── GPTs (custom versions of ChatGPT) ────────────────────────────────────
-function saveGpts(){ try{ localStorage.setItem('cg_gpts', JSON.stringify(gpts)); }catch(e){} }
+function saveGpts(){ try{ localStorage.setItem('cg_gpts', JSON.stringify(gpts)); }catch(e){} scheduleSync(); }
 function seedGpts(){
   if(localStorage.getItem('cg_gpts_seeded')) return;
   if(!gpts.length){
@@ -1580,12 +1583,13 @@ function closeGptModal(){ $('#gpt-overlay').classList.remove('open'); }
 function saveGpt(){
   const name=$('#gpt-name').value.trim(); if(!name){ $('#gpt-name').focus(); return; }
   const desc=$('#gpt-desc').value.trim(), instructions=$('#gpt-instructions').value.trim();
-  if(editingGptId){ const g=gptById(editingGptId); if(g){ g.name=name; g.desc=desc; g.instructions=instructions; } }
+  if(editingGptId){ const g=gptById(editingGptId); if(g){ g.name=name; g.desc=desc; g.instructions=instructions; g.uts=now(); } }
   else { gpts.push({id:'gpt_'+now()+'_'+Math.random().toString(36).slice(2,6), name, desc, instructions, ts:now()}); }
   saveGpts(); closeGptModal(); if(currentView==='gpts') renderGpts(); updateGptContext();
 }
 function deleteGptFromUI(){
   if(!editingGptId) return; if(!confirm('Delete this GPT?')) return;
+  addTombstone('gpt', editingGptId);
   gpts=gpts.filter(g=>g.id!==editingGptId);
   convos.forEach(c=>{ if(c.gptId===editingGptId) c.gptId=null; });
   saveGpts(); persist(); closeGptModal(); if(currentView==='gpts') renderGpts(); updateGptContext();
@@ -1663,10 +1667,11 @@ function cvToggleEdit(){
 }
 function cvEdited(v){
   const cv=activeCanvas(); if(!cv) return;
+  touchConvo(activeConvo());
   cv.versions[cv.vi].content=v; cv.versions[cv.vi].ts=now();
   clearTimeout(cvSaveTimer); cvSaveTimer=setTimeout(persist, 400);
 }
-function cvTitleChange(v){ const cv=activeCanvas(); if(cv){ cv.title=v.trim()||'Untitled'; persist(); renderThread(); } }
+function cvTitleChange(v){ const cv=activeCanvas(); if(cv){ cv.title=v.trim()||'Untitled'; touchConvo(activeConvo()); persist(); renderThread(); } }
 function cvCopy(btn){ navigator.clipboard.writeText(cvCurrent()); showToast('Copied canvas'); }
 const CV_EXT={python:'py',javascript:'js',typescript:'ts',java:'java',c:'c',cpp:'cpp','c++':'cpp',csharp:'cs',
   go:'go',rust:'rs',ruby:'rb',php:'php',html:'html',css:'css',sql:'sql',bash:'sh',shell:'sh',sh:'sh',
@@ -1790,8 +1795,8 @@ function renderMessage(m, idx){
     msg.querySelector('.act-copy').onclick=(e)=>copyBtn(e.currentTarget, content);
     if(m.rating==='up') msg.querySelector('.act-good').classList.add('ok');
     if(m.rating==='down') msg.querySelector('.act-bad').classList.add('ok');
-    msg.querySelector('.act-good').onclick=()=>{ m.rating=m.rating==='up'?null:'up'; persist(); renderThread(); };
-    msg.querySelector('.act-bad').onclick=()=>{ m.rating=m.rating==='down'?null:'down'; persist(); renderThread(); };
+    msg.querySelector('.act-good').onclick=()=>{ m.rating=m.rating==='up'?null:'up'; touchConvo(activeConvo()); persist(); renderThread(); };
+    msg.querySelector('.act-bad').onclick=()=>{ m.rating=m.rating==='down'?null:'down'; touchConvo(activeConvo()); persist(); renderThread(); };
     msg.querySelector('.act-read').onclick=(e)=>readAloud(content, e.currentTarget);
     msg.querySelector('.act-regen').onclick=(e)=>{e.stopPropagation();regenMenu(e.currentTarget, idx);};
     if(pager){
@@ -2266,12 +2271,12 @@ function customInstructions(){
 // ── Cross-chat memory ─────────────────────────────────────────────────────
 let memories = JSON.parse(localStorage.getItem('cg_memories')||'[]');
 function memoryEnabled(){ return localStorage.getItem('cg_memory_off')!=='1'; }
-function saveMemories(){ try{ localStorage.setItem('cg_memories', JSON.stringify(memories.slice(-200))); }catch(e){} }
+function saveMemories(){ try{ localStorage.setItem('cg_memories', JSON.stringify(memories.slice(-200))); }catch(e){} localStorage.setItem('cg_mem_ts', String(now())); scheduleSync(); }
 function addMemory(text){ text=(text||'').trim(); if(!text) return; if(memories.some(m=>m.text===text)) return;
   memories.push({id:'mem_'+now()+'_'+Math.random().toString(36).slice(2,6), text:text.slice(0,300), ts:now()}); saveMemories(); }
 function deleteMemory(id){ memories=memories.filter(m=>m.id!==id); saveMemories(); }
 function clearMemories(){ memories=[]; saveMemories(); }
-function toggleMemory(on){ localStorage.setItem('cg_memory_off', on?'0':'1'); }
+function toggleMemory(on){ localStorage.setItem('cg_memory_off', on?'0':'1'); localStorage.setItem('cg_mem_ts', String(now())); scheduleSync(); }
 function renderMemoryList(){
   const el=$('#memory-list'); if(!el) return;
   const chk=$('#mem-enabled'); if(chk) chk.checked=memoryEnabled();
@@ -2331,12 +2336,15 @@ function saveKey(){
     const a=($('#ci-about')?$('#ci-about').value:'').trim(), st=($('#ci-style')?$('#ci-style').value:'').trim();
     a ? localStorage.setItem('cg_ci_about',a) : localStorage.removeItem('cg_ci_about');
     st ? localStorage.setItem('cg_ci_style',st) : localStorage.removeItem('cg_ci_style');
+    localStorage.setItem('cg_ci_ts', String(now()));
   }
   updateAccount(); closeSettings();
+  if(k) syncNow();   // logging in (or re-keying) pulls the account's synced state
 }
 function setDefaultModel(id){ pickModel(id); }
 function deleteAllChats(){
   if(!confirm('Delete all chats on this device? This cannot be undone.')) return;
+  convos.forEach(c=>addTombstone('convo', c.id));
   convos=[]; activeId=null; persist(); renderThread(); renderChatList(); setLanding(); closeSettings();
 }
 function logout(){
@@ -2380,6 +2388,101 @@ function showToast(msg){
 }
 
 // ── Init ────────────────────────────────────────────────────────────────
+// ── Server-side sync (cross-device history via /api/sync) ───────────────
+// Per-item newest-wins merge keyed by the PWM key: chats, projects, GPTs,
+// memories, custom instructions. Deletions travel as tombstones so a stale
+// device can't resurrect them. Push is debounced after any persist; pull
+// happens on load, on tab focus, and every 90s.
+let syncTimer=null, syncBusy=false, syncApplying=false;
+
+function tombstones(){ try{ return JSON.parse(localStorage.getItem('cg_tombstones')||'[]'); }catch(e){ return []; } }
+function addTombstone(kind,id){
+  const t=tombstones().filter(x=>!(x.kind===kind&&x.id===id));
+  t.push({kind,id,ts:now()});
+  localStorage.setItem('cg_tombstones', JSON.stringify(t.slice(-400)));
+  scheduleSync();
+}
+function touchConvo(c){ if(c) c.uts=now(); }
+
+// Strip bulky payloads (data-URL images) before shipping a chat to the server.
+function stripConvoForSync(c){
+  return {...c, messages:(c.messages||[]).map(m=>{
+    let mm=m;
+    if(m.atts) mm={...mm, atts:m.atts.map(a=> (a.url&&a.url.length>2000) ? {...a, url:null} : a)};
+    if(m.variants) mm={...mm, variants:m.variants.map(v=> (v.image&&v.image.length>2000) ? {...v, image:null} : v)};
+    return mm;
+  })};
+}
+function collectSyncItems(){
+  const items=[];
+  convos.forEach(c=>items.push({kind:'convo', id:c.id, ts:Math.max(c.ts||0, c.uts||0),
+    data:JSON.stringify(stripConvoForSync(c))}));
+  projects.forEach(p=>items.push({kind:'project', id:p.id, ts:Math.max(p.ts||0, p.uts||0), data:JSON.stringify(p)}));
+  gpts.forEach(g=>items.push({kind:'gpt', id:g.id, ts:Math.max(g.ts||0, g.uts||0), data:JSON.stringify(g)}));
+  items.push({kind:'kv', id:'memories', ts:+localStorage.getItem('cg_mem_ts')||0,
+    data:JSON.stringify({list:memories, off:localStorage.getItem('cg_memory_off')==='1'})});
+  items.push({kind:'kv', id:'ci', ts:+localStorage.getItem('cg_ci_ts')||0,
+    data:JSON.stringify({about:localStorage.getItem('cg_ci_about')||'', style:localStorage.getItem('cg_ci_style')||''})});
+  tombstones().forEach(t=>items.push({kind:t.kind, id:t.id, ts:t.ts, deleted:1}));
+  return items;
+}
+function scheduleSync(){
+  if(syncApplying || !getKey()) return;
+  clearTimeout(syncTimer); syncTimer=setTimeout(syncNow, 2500);
+}
+async function syncNow(){
+  if(!getKey() || syncBusy) return;
+  syncBusy=true;
+  try{
+    const resp=await fetch('/api/sync',{method:'POST',
+      headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
+      body:JSON.stringify({items:collectSyncItems()})});
+    if(resp.ok){
+      const st=await resp.json();
+      applySync(st.items||[]);
+      localStorage.setItem('cg_tombstones','[]');   // server holds them now
+    }
+  }catch(e){ /* offline / server hiccup — next sync catches up */ }
+  finally{ syncBusy=false; }
+}
+function applySync(items){
+  if(generating) return;   // never clobber a streaming reply; next sync applies
+  syncApplying=true;
+  try{
+    const parse=i=>{ try{ return JSON.parse(i.data); }catch(e){ return null; } };
+    const live=k=>items.filter(i=>i.kind===k && !i.deleted).map(parse).filter(Boolean);
+    convos=live('convo').sort((a,b)=>(Math.max(b.ts||0,b.uts||0))-(Math.max(a.ts||0,a.uts||0)));
+    projects=live('project');
+    gpts=live('gpt');
+    const kv=id=>items.find(i=>i.kind==='kv' && i.id===id && !i.deleted);
+    const mem=kv('memories');
+    if(mem && mem.ts>(+localStorage.getItem('cg_mem_ts')||0)){
+      const d=parse(mem)||{};
+      memories=Array.isArray(d.list)?d.list:[];
+      localStorage.setItem('cg_memories', JSON.stringify(memories));
+      localStorage.setItem('cg_memory_off', d.off?'1':'0');
+      localStorage.setItem('cg_mem_ts', String(mem.ts));
+    }
+    const ci=kv('ci');
+    if(ci && ci.ts>(+localStorage.getItem('cg_ci_ts')||0)){
+      const d=parse(ci)||{};
+      d.about ? localStorage.setItem('cg_ci_about', d.about) : localStorage.removeItem('cg_ci_about');
+      d.style ? localStorage.setItem('cg_ci_style', d.style) : localStorage.removeItem('cg_ci_style');
+      localStorage.setItem('cg_ci_ts', String(ci.ts));
+    }
+    persist(); saveProjects(); saveGpts();
+    if(activeId && !convos.find(c=>c.id===activeId)){
+      activeId=null; closeCanvas(); renderThread(); setLanding();
+    } else if(activeId && currentView==='chat'){
+      renderThread();
+    }
+    renderChatList();
+  } finally { syncApplying=false; }
+}
+// Pull on tab focus and on a slow heartbeat so other-device changes appear.
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) syncNow(); });
+setInterval(syncNow, 90000);
+
 // ── Keyboard shortcuts (ChatGPT-style) ──────────────────────────────────
 function openShortcuts(){ $('#shortcuts-overlay').classList.add('open'); }
 function closeShortcuts(){ $('#shortcuts-overlay').classList.remove('open'); }
@@ -2410,6 +2513,7 @@ document.addEventListener('keydown', e=>{
   if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');
   if(!getKey()) openKeyModal();
   else if(justLoggedIn){ showToast('Logged in'); refreshAccountHead(); }
+  if(getKey()) setTimeout(syncNow, 800);
   input.focus();
 })();
 </script>
