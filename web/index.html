@@ -296,6 +296,23 @@
   @media (max-width:900px){
     #canvas-panel{position:fixed;inset:0;width:100%;min-width:0;z-index:80;border-left:none}
   }
+  /* shared-link (read-only) view */
+  #shared-bar{display:none;align-items:center;gap:12px;max-width:var(--maxw);width:100%;
+        margin:0 auto;padding:18px 20px 6px}
+  #shared-bar .shb-info{min-width:0}
+  #shared-title{font-size:19px;font-weight:600}
+  #shared-date{font-size:12.5px;color:var(--text-3);margin-top:2px}
+  #shared-continue{display:none;position:fixed;bottom:26px;left:50%;transform:translateX(-50%);
+        z-index:40;box-shadow:0 6px 24px rgba(0,0,0,.35);border-radius:999px;padding:12px 22px}
+  body.shared #shared-bar{display:flex}
+  body.shared #shared-continue{display:block}
+  body.shared #sidebar, body.shared #topbar, body.shared #dock, body.shared #sb-backdrop{display:none}
+  body.shared .msg .actions{display:none!important}
+  body.shared #thread{padding-bottom:90px}
+  /* share dialog */
+  .share-row{display:flex;gap:8px;margin-top:6px}
+  .share-row input{flex:1;min-width:0;padding:11px 14px;background:var(--bg);border:1px solid var(--border);
+        border-radius:10px;color:var(--text);font-size:13px;font-family:var(--mono);outline:none}
   body.landing #scroll{flex:0 0 auto}
   body.landing #thread{display:none}
   body.landing #dock{flex:1;display:flex;flex-direction:column;justify-content:center;padding-bottom:13vh}
@@ -630,6 +647,16 @@
       <button class="top-avatar" id="top-avatar" onclick="toggleAccountMenu(event)" aria-label="Account"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v3h16v-3c0-2.76-3.58-5-8-5Z"/></svg></button>
     </header>
 
+    <!-- shared-link (read-only) header + continue button -->
+    <div id="shared-bar">
+      <svg class="brand" width="22" height="22"><use href="#oai"/></svg>
+      <div class="shb-info">
+        <div id="shared-title">Shared conversation</div>
+        <div id="shared-date"></div>
+      </div>
+    </div>
+    <button id="shared-continue" class="btn btn-primary" onclick="continueShared()">Continue this conversation</button>
+
     <div class="pop" id="model-menu"></div>
 
     <div id="scroll">
@@ -821,6 +848,9 @@
       <label style="margin-top:16px">Archived chats</label>
       <div id="archived-list" class="mem-list"></div>
 
+      <label style="margin-top:16px">Shared links</label>
+      <div id="shared-links" class="mem-list"></div>
+
       <div class="danger-zone">
         <span>Delete all chats on this device</span>
         <button class="btn btn-sm btn-danger" onclick="deleteAllChats()">Delete all</button>
@@ -864,6 +894,22 @@
       <button class="btn btn-danger" id="gpt-del" style="display:none;margin-right:auto" onclick="deleteGptFromUI()">Delete</button>
       <button class="btn btn-ghost" onclick="closeGptModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveGpt()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- share link dialog -->
+<div class="overlay" id="share-overlay" onclick="if(event.target===this)closeShareModal()">
+  <div class="modal">
+    <h2>Share public link to chat</h2>
+    <p>Anyone with the link can view this conversation. Messages you send after sharing stay private until you share again (which updates the link).</p>
+    <div class="share-row">
+      <input id="share-url" readonly spellcheck="false" onclick="this.select()">
+      <button class="btn btn-primary" onclick="copyShareUrl()">Copy link</button>
+    </div>
+    <div class="row">
+      <button class="btn btn-danger btn-sm" style="margin-right:auto" onclick="deleteShareFromModal()">Delete link</button>
+      <button class="btn btn-ghost" onclick="closeShareModal()">Close</button>
     </div>
   </div>
 </div>
@@ -1185,7 +1231,7 @@ function renderAttachments(){
 function activeConvo(){ return tempMode ? tempConvo : convos.find(c=>c.id===activeId); }
 function activeMsgs(){ const c=activeConvo(); return c?c.messages:[]; }
 function persist(){
-  if(tempMode) return;   // temporary chats are never saved
+  if(tempMode || sharedView) return;   // temp chats & shared view are never saved
   try{ localStorage.setItem('cg_convos', JSON.stringify(convos.slice(0,120))); }
   catch(e){   // quota (large images) — store a slimmed copy without image data
     try{
@@ -2092,12 +2138,81 @@ function syncVoiceMuteUI(){
   b.title=voiceMuted?'Unmute':'Mute'; b.setAttribute('aria-label', b.title);
 }
 
-// Share the current conversation
-function shareChat(){
+// ── Hosted share links (public read-only snapshots via /api/share) ──────
+let currentShareId=null, sharedView=false;
+
+async function shareChat(){
   const c=activeConvo(); if(!c||!c.messages.length) return;
-  const text=c.messages.map(m=> (m.role==='user'?'You: ':'ChatGPT: ')+msgText(m)).join('\n\n');
-  if(navigator.share){ navigator.share({title:c.title||'ChatGPT', text}).catch(()=>{}); }
-  else { navigator.clipboard.writeText(text); showToast('Conversation copied to clipboard'); }
+  if(!getKey()){ showToast('Log in to create a share link'); openKeyModal(); return; }
+  try{
+    const resp=await fetch('/api/share',{method:'POST',
+      headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
+      body:JSON.stringify({convo:stripConvoForSync(c)})});
+    if(!resp.ok){ const e=await resp.json().catch(()=>({})); throw new Error(e.detail||'Could not create link'); }
+    const st=await resp.json();
+    currentShareId=st.id;
+    $('#share-url').value=location.origin+st.url;
+    $('#share-overlay').classList.add('open');
+  }catch(e){ showToast(e.message||'Could not create link'); }
+}
+function closeShareModal(){ $('#share-overlay').classList.remove('open'); }
+function copyShareUrl(){ navigator.clipboard.writeText($('#share-url').value); showToast('Link copied'); }
+async function deleteShareFromModal(){
+  if(!currentShareId) return;
+  try{ await fetch('/api/share/'+currentShareId,{method:'DELETE',headers:{'X-PWM-Key':getKey()}}); }catch(e){}
+  currentShareId=null; closeShareModal(); showToast('Link deleted');
+}
+// "Shared links" manager in Settings.
+async function renderSharedLinks(){
+  const box=$('#shared-links'); if(!box) return;
+  if(!getKey()){ box.innerHTML='<div class="mem-empty">Log in to see shared links.</div>'; return; }
+  box.innerHTML='<div class="mem-empty">Loading…</div>';
+  try{
+    const resp=await fetch('/api/shares',{headers:{'X-PWM-Key':getKey()}});
+    if(!resp.ok) throw new Error();
+    const rows=(await resp.json()).shares||[];
+    box.innerHTML = rows.length ? '' : '<div class="mem-empty">No shared links.</div>';
+    rows.forEach(r=>{
+      const row=document.createElement('div'); row.className='mem-row';
+      row.innerHTML=`<span>${escapeHtml(r.title||'Untitled')}</span>`+
+        `<a class="btn btn-sm btn-ghost" style="width:auto;height:auto;text-decoration:none" href="/share/${r.id}" target="_blank" rel="noopener">Open</a>`+
+        `<button title="Delete" aria-label="Delete">✕</button>`;
+      row.querySelector('button[title="Delete"]').onclick=async()=>{
+        try{ await fetch('/api/share/'+r.id,{method:'DELETE',headers:{'X-PWM-Key':getKey()}}); }catch(e){}
+        renderSharedLinks();
+      };
+      box.appendChild(row);
+    });
+  }catch(e){ box.innerHTML='<div class="mem-empty">Couldn’t load shared links.</div>'; }
+}
+// Read-only viewer for /share/<id> — no sidebar/composer, "Continue" imports the chat.
+async function initSharedView(id){
+  sharedView=true;
+  document.body.classList.add('shared');
+  document.body.classList.remove('landing');
+  try{
+    const resp=await fetch('/api/share/'+id);
+    if(!resp.ok) throw new Error();
+    const st=await resp.json();
+    const c=st.convo||{}; c.id=c.id||'shared';
+    convos=[c]; activeId=c.id;
+    $('#shared-title').textContent=c.title||'Shared conversation';
+    if(st.created) $('#shared-date').textContent=new Date(st.created).toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'});
+    window.__sharedConvo=c;
+    renderThread();
+  }catch(e){
+    $('#shared-title').textContent='Conversation not found';
+    $('#shared-continue').style.display='none';
+    thread.innerHTML='<div class="feature"><h2>This link is unavailable</h2><p>The shared conversation may have been deleted by its owner.</p></div>';
+  }
+}
+function continueShared(){
+  const c=window.__sharedConvo; if(!c) return;
+  let stored=[]; try{ stored=JSON.parse(localStorage.getItem('cg_convos')||'[]'); }catch(e){}
+  const clone={...c, id:String(Date.now()), ts:Date.now(), title:c.title||'Shared chat'};
+  stored.unshift(clone);
+  try{ localStorage.setItem('cg_convos', JSON.stringify(stored)); }catch(e){}
+  location.href='/';
 }
 
 async function onSend(e){
@@ -2250,7 +2365,7 @@ function openSettingsModal(){
   $('#key-input').value=getKey();
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
-  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); renderMemoryList(); renderArchivedList(); }
+  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); renderMemoryList(); renderArchivedList(); renderSharedLinks(); }
   applyTheme();
   $('#settings-overlay').classList.add('open');
   refreshBalance();
@@ -2427,11 +2542,11 @@ function collectSyncItems(){
   return items;
 }
 function scheduleSync(){
-  if(syncApplying || !getKey()) return;
+  if(syncApplying || sharedView || !getKey()) return;
   clearTimeout(syncTimer); syncTimer=setTimeout(syncNow, 2500);
 }
 async function syncNow(){
-  if(!getKey() || syncBusy) return;
+  if(!getKey() || syncBusy || sharedView) return;
   syncBusy=true;
   try{
     const resp=await fetch('/api/sync',{method:'POST',
@@ -2503,8 +2618,10 @@ document.addEventListener('keydown', e=>{
 });
 
 (function init(){
-  const justLoggedIn = captureKeyFromUrl();   // capture a portal-returned key, if any
   applyTheme();
+  const shareMatch=location.pathname.match(/^\/share\/([A-Za-z0-9_-]+)/);
+  if(shareMatch){ initSharedView(shareMatch[1]); return; }
+  const justLoggedIn = captureKeyFromUrl();   // capture a portal-returned key, if any
   seedGpts();
   if(/Mac|iP(hone|ad|od)/.test(navigator.platform)) document.querySelectorAll('.kbd.modk').forEach(k=>k.textContent='⌘');
   pickModel(currentModel);

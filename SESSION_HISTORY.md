@@ -32,6 +32,48 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-02 — Hosted share links (public read-only chats at /share/<id>)
+
+**Request:** "Please build hosted share links next."
+
+**Backend** (`web/main.py`, same shared SQLite as sync → links resolve on BOTH
+domains): table `shares(id, user, convo_id, data, created)`.
+- **`POST /api/share`** (valid PWM key) — snapshots the convo (images stripped
+  client-side), mints an unguessable `secrets.token_urlsafe(12)` id; **re-sharing the
+  same chat upserts the SAME link** (ChatGPT's "update link" semantics). 400 KB cap.
+- **`GET /api/share/{id}`** — public JSON snapshot (no key). **`GET /share/{id}`** —
+  serves the SPA. **`GET /api/shares`** / **`DELETE /api/share/{id}`** — owner-only
+  list + revoke (403 on foreign key, 404 after delete).
+
+**Frontend** (`web/index.html`):
+- **Share button** now creates a real link and opens a ChatGPT-style dialog (URL
+  field + Copy link + Delete link + "anyone with the link" note). Logged-out → key
+  modal.
+- **Read-only shared view**: `init()` routes `/share/<id>` to `initSharedView()` —
+  fetches the snapshot, renders the full thread (markdown/KaTeX/code intact) with a
+  logo+title+date banner, sidebar/topbar/composer/message-actions hidden, and a
+  floating **"Continue this conversation"** pill that clones the chat into the
+  visitor's own history (then syncs if they're logged in). `persist()`/sync are
+  disabled in shared view (`sharedView` guard). Dead links show "This link is
+  unavailable" and hide Continue.
+- **Settings → "Shared links"** manager: lists links (title + Open + ✕ revoke).
+
+**Deploy gotcha (self-inflicted):** a `pkill -f "uvicorn…8894"` matched the *invoking
+shell's own command line* and killed it mid-deploy (exit 144) — files never copied,
+old code kept serving. Redone with self-safe patterns (`--port 889[4]` char-class
+trick). 8201 supervisor respawn took ~15 s this time — poll before concluding failure.
+
+**Verified:** headless 22/22 — dialog/URL, same-link upsert, public snapshot API, SPA
+shared view (markdown rendered, chrome hidden), Continue→import→sidebar, Settings
+list, foreign-key delete 403, owner revoke → API 404 + "unavailable" page, zero
+console errors. All regressions green (sync 11, canvas 33, voice 20, GPTs 16,
+archive 14). Live on both domains: share-gate 401, share page 200, dead snapshot 404,
+UI markers served.
+
+**Remaining gaps:** code interpreter, connectors, Sora.
+
+---
+
 ## 2026-07-02 — Server-side sync (cross-device history via /api/sync)
 
 **Request:** "Please build server-side sync next" — the last big parity gap.

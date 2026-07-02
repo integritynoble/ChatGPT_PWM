@@ -170,6 +170,14 @@ def _sync_db() -> sqlite3.Connection:
             ts INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0, data TEXT,
             PRIMARY KEY(user, kind, id))"""
     )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS shares(
+            id TEXT PRIMARY KEY, user TEXT NOT NULL, convo_id TEXT NOT NULL,
+            data TEXT NOT NULL, created INTEGER NOT NULL)"""
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS shares_user ON shares(user, convo_id)"
+    )
     return conn
 
 
@@ -236,6 +244,115 @@ async def sync(req: Request, body: SyncRequest):
             for (k, i, t, d, data) in rows
         ]
     }
+
+
+# ── Hosted share links (public read-only chat snapshots) ─────────────────
+
+import secrets
+import time as _time
+
+
+def _share_auth(req: Request):
+    """Require a PWM key; returns (user_hash, key) for share create/list/delete."""
+    pwm_key = (
+        req.headers.get("X-PWM-Key")
+        or req.headers.get("Authorization", "").removeprefix("Bearer ")
+    ).strip() or None
+    if not pwm_key:
+        raise HTTPException(status_code=401, detail="Sharing requires a PWM key.")
+    return hashlib.sha256(pwm_key.encode()).hexdigest(), pwm_key
+
+
+class ShareRequest(BaseModel):
+    convo: dict
+
+
+@app.post("/api/share")
+async def create_share(req: Request, body: ShareRequest):
+    user, pwm_key = _share_auth(req)
+    check = await pwm_billing.check_balance(pwm_key)
+    if not check.valid:
+        raise HTTPException(status_code=401, detail=check.reason)
+    convo_id = str(body.convo.get("id") or "")
+    if not convo_id or not body.convo.get("messages"):
+        raise HTTPException(status_code=400, detail="Nothing to share.")
+    data = json.dumps(body.convo)
+    if len(data) > SYNC_MAX_ITEM_BYTES:
+        raise HTTPException(status_code=413, detail="Conversation too large to share.")
+    conn = _sync_db()
+    try:
+        # Re-sharing the same chat updates the existing link (ChatGPT's "Update link").
+        row = conn.execute(
+            "SELECT id FROM shares WHERE user=? AND convo_id=?", (user, convo_id)
+        ).fetchone()
+        sid = row[0] if row else secrets.token_urlsafe(12)
+        conn.execute(
+            "INSERT INTO shares(id,user,convo_id,data,created) VALUES(?,?,?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET data=excluded.data, created=excluded.created",
+            (sid, user, convo_id, data, int(_time.time() * 1000)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"id": sid, "url": f"/share/{sid}"}
+
+
+@app.get("/api/share/{sid}")
+async def get_share(sid: str):
+    conn = _sync_db()
+    try:
+        row = conn.execute(
+            "SELECT data, created FROM shares WHERE id=?", (sid,)
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Shared link not found.")
+    return {"convo": json.loads(row[0]), "created": row[1]}
+
+
+@app.get("/api/shares")
+async def list_shares(req: Request):
+    user, _ = _share_auth(req)
+    conn = _sync_db()
+    try:
+        rows = conn.execute(
+            "SELECT id, convo_id, created, data FROM shares WHERE user=? ORDER BY created DESC",
+            (user,),
+        ).fetchall()
+    finally:
+        conn.close()
+    out = []
+    for (sid, cid, created, data) in rows:
+        try:
+            title = json.loads(data).get("title") or "Untitled"
+        except Exception:
+            title = "Untitled"
+        out.append({"id": sid, "convo_id": cid, "created": created, "title": title})
+    return {"shares": out}
+
+
+@app.delete("/api/share/{sid}")
+async def delete_share(req: Request, sid: str):
+    user, _ = _share_auth(req)
+    conn = _sync_db()
+    try:
+        row = conn.execute("SELECT user FROM shares WHERE id=?", (sid,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Shared link not found.")
+        if row[0] != user:
+            raise HTTPException(status_code=403, detail="Not your shared link.")
+        conn.execute("DELETE FROM shares WHERE id=?", (sid,))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"deleted": sid}
+
+
+@app.get("/share/{sid}", response_class=HTMLResponse)
+async def share_page(sid: str):
+    # The SPA detects /share/<id> and renders the read-only shared view.
+    return _INDEX_FILE.read_text(encoding="utf-8")
 
 
 # ── Text-to-speech (neural voices via edge-tts; used by voice mode / read-aloud) ──
