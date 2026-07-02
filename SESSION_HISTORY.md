@@ -32,6 +32,46 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-02 — Canvas (side-by-side collaborative editor)
+
+**Request:** "Please build Canvas next."
+
+**Built** (`web/index.html` only): ChatGPT's Canvas — a split-view editor where the
+model writes/revises documents and code in a right-hand panel while chat continues on
+the left. Backend unchanged; the protocol is marker-based: `systemContext()` (when the
+Canvas tool is on **or** the convo already has a canvas) instructs the model to wrap
+the ENTIRE artifact in `[[canvas: title="…" lang="…"]] … [[/canvas]]`, commentary
+outside. The client:
+
+- **Streams live** — `splitCanvas()` splits partial replies during `streamReply()`;
+  canvas body paints into the panel as it streams (title bar shows "writing…"), the
+  chat bubble gets a compact **canvas card** (icon + title + "Click to open canvas")
+  instead of the raw block. Raw markers never render in chat; text outside markers
+  shows normally. (Gotcha fixed: on very fast streams the pending rAF paint is
+  cancelled in `finally` — the panel now also opens on commit.)
+- **Versions** — each model rewrite pushes `c.canvas.versions[]` (v1/v2… with ‹ ›
+  nav). Manual edits update the current version in place (debounced persist).
+- **Panel** — editable title (rename re-titles the chat card), Edit↔Preview toggle
+  (preview = rendered markdown; code renders as a highlighted fence; editor = plain
+  textarea, mono for code), Copy, Download (extension from lang: py/js/…; md for
+  prose), Close (card reopens). Quick-action chips by kind — doc: Polish/Shorter/
+  Longer/Simplify/Add emojis; code: Add comments/Fix bugs/Code review/Optimize — each
+  sends a normal user turn; the system context carries the current canvas content, so
+  the model replies with a full updated artifact → new version.
+- **Entry** — "Canvas — Collaborate on writing and code" row in the **+** menu, plus a
+  composer pill while armed; auto-disarms once a canvas is committed (the follow-up
+  instruction persists via `c.canvas`). One canvas per conversation, stored on the
+  convo (`cg_convos`), survives reload. Mobile: panel goes full-screen.
+
+**Verified:** `node --check` OK; headless (SSE stub streaming canvas markers in 40-char
+chunks): 33/33 — parser, + menu/pill, live stream→panel, card in chat, no raw markers,
+v1→v2 commit, version nav, edit/save/preview, rename, close/reopen, reload
+persistence, code-canvas chips/mono, zero console errors. Regressions green: GPTs
+16/16, archive+shortcuts 14/14, voice 20/20. Deployed to both live dirs; live smoke on
+both domains (menu row, pill, panel render) clean.
+
+---
+
 ## 2026-07-02 — Voice conversation mode
 
 **Request:** "Please build voice conversation mode next."
