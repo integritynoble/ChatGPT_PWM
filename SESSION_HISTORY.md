@@ -32,6 +32,42 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-02 — Parity push: GPTs, archive chats, keyboard shortcuts
+
+**Request:** "Make sure this ChatGPT based on PWM is the same as ChatGPT from OpenAI"
+— the recurring parity directive. Finished the in-flight GPTs work and closed two more
+gaps.
+
+- **GPTs (custom versions of ChatGPT)** — the sidebar "GPTs" placeholder is now real:
+  a grid of GPT cards (3 seeded examples: Code Copilot, Writing Coach, Chef) plus
+  **+ Create a GPT** → modal with name / description / instructions (edit + delete via
+  the card's pencil). Clicking a card starts a chat with that GPT: a pill above the
+  composer shows *"Chatting with \<name\>"* (✕ to exit), the convo stores `gptId`, and
+  `systemContext()` injects the persona (`You are "<name>", a custom GPT. <instructions>`)
+  ahead of custom instructions + memory. Stored in `cg_gpts` (+ `cg_gpts_seeded`).
+  (Prior session left this half-built and uncommitted — this session added the missing
+  modal HTML, all GPTs CSS, and the `seedGpts()` init call.)
+- **Archive chats** — chat ⋯ menu gains **Archive**; archived chats leave the sidebar
+  (flag `convo.archived`) and appear in Settings under **"Archived chats"** with
+  Unarchive / Delete. Archiving the active chat returns to the landing screen.
+- **Keyboard shortcuts** — ChatGPT's set: **Ctrl/⌘+Shift+O** new chat,
+  **Ctrl/⌘+Shift+S** toggle sidebar, **Shift+Esc** focus composer,
+  **Ctrl/⌘+Shift+⌫** delete current chat (confirm), **Ctrl/⌘+/** shortcuts overlay
+  (Esc closes; ⌘ shown on Mac).
+
+**Verified:** `node --check` OK; headless Chromium (local): 16/16 GPTs checks
+(seed/create/edit/persist/context-bar/systemContext/ensureConvo), 14/14
+archive+shortcuts checks, zero console errors (only the expected `/api/balance` 404 on
+the backend-less test server). **Deployed to both live dirs**; live smoke on
+chatgpt.comparegpt.io + chatgpt.platformai.org: GPT grid renders, shortcuts open,
+zero console errors.
+
+**Still not at full parity** (larger lifts): voice conversation mode, Canvas, code
+interpreter, connectors, Sora (placeholder), server-side cross-device sync, shareable
+chat links (share uses Web Share/clipboard, no hosted URL).
+
+---
+
 ## 2026-07-01 — Parity push: Custom instructions, real Library, real Projects
 
 **Request:** Keep closing the gap to OpenAI's ChatGPT. Turned two decorative

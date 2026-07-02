@@ -206,6 +206,32 @@
         font-size:14px;background:var(--hover);transition:background .15s}
   .proj-chat:hover{background:var(--hover-2)}
   .proj-empty{color:var(--text-3);font-size:14px;padding:12px 2px}
+  /* GPTs */
+  .gpt-wrap{max-width:var(--maxw);margin:0 auto;padding:20px 16px 60px}
+  .gpt-sub{color:var(--text-2);font-size:14px;margin:-8px 0 18px}
+  .gpt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+  .gpt-card{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;border:1px solid var(--border);
+        background:var(--hover);color:var(--text);text-align:left;cursor:pointer;transition:background .15s}
+  .gpt-card:hover{background:var(--hover-2)}
+  .gpt-ava{width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--accent-fg);
+        display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600;flex-shrink:0}
+  .gpt-info{flex:1;min-width:0}
+  .gpt-info .gpt-name{font-size:15px;font-weight:600}
+  .gpt-info .gpt-desc{font-size:12.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .gpt-edit{width:28px;height:28px;border-radius:8px;color:var(--text-3);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .gpt-edit:hover{background:var(--hover-2);color:var(--text)}
+  #gpt-context{align-items:center;gap:8px;font-size:13px;color:var(--text-2);padding:6px 12px;margin:0 4px 8px;
+        border:1px solid var(--border);border-radius:999px;background:var(--hover);width:fit-content}
+  #gpt-context b{font-weight:600;color:var(--text)}
+  #gpt-context button{width:20px;height:20px;border-radius:6px;color:var(--text-3);font-size:12px;line-height:1}
+  #gpt-context button:hover{background:var(--hover-2);color:var(--text)}
+  /* keyboard shortcuts */
+  .sc-list{display:flex;flex-direction:column}
+  .sc-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 2px;
+        border-bottom:1px solid var(--border);font-size:14px}
+  .sc-row:last-child{border-bottom:none}
+  .sc-row .kbd{display:inline-block;padding:2px 8px;margin-left:5px;border:1px solid var(--border);border-radius:6px;
+        background:var(--bg);font-size:12px;font-family:var(--mono);color:var(--text-2)}
   body.landing #scroll{flex:0 0 auto}
   body.landing #thread{display:none}
   body.landing #dock{flex:1;display:flex;flex-direction:column;justify-content:center;padding-bottom:13vh}
@@ -553,6 +579,11 @@
     <div id="dock">
       <div id="greeting"><h1>What can I help with?</h1></div>
       <div id="composer-inner">
+        <div id="gpt-context" style="display:none">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+          <span>Chatting with <b id="gpt-context-name"></b></span>
+          <button type="button" onclick="clearGptContext()" title="Exit GPT" aria-label="Exit GPT">✕</button>
+        </div>
         <div id="attach-row"></div>
         <form id="composer" onsubmit="onSend(event)">
           <textarea id="input" rows="1" placeholder="Ask anything"
@@ -674,6 +705,9 @@
       </div>
       <div style="text-align:right;margin-top:6px"><button class="btn btn-sm btn-ghost" onclick="clearMemoriesFromUI()">Clear all memories</button></div>
 
+      <label style="margin-top:16px">Archived chats</label>
+      <div id="archived-list" class="mem-list"></div>
+
       <div class="danger-zone">
         <span>Delete all chats on this device</span>
         <button class="btn btn-sm btn-danger" onclick="deleteAllChats()">Delete all</button>
@@ -699,6 +733,40 @@
       <button class="btn btn-sm btn-danger" id="lightbox-del">Delete</button>
       <button class="btn btn-sm btn-ghost" onclick="closeLightbox()">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- Create / edit GPT modal -->
+<div class="overlay" id="gpt-overlay" onclick="if(event.target===this)closeGptModal()">
+  <div class="modal">
+    <h2 id="gpt-modal-title">Create a GPT</h2>
+    <p>A custom version of ChatGPT with its own name and instructions, used as the system prompt in its chats.</p>
+    <label for="gpt-name">Name</label>
+    <input id="gpt-name" type="text" placeholder="e.g. Code Copilot" style="font-family:var(--font)" autocomplete="off" spellcheck="false">
+    <label for="gpt-desc">Description</label>
+    <input id="gpt-desc" type="text" placeholder="What does this GPT do?" style="font-family:var(--font)" autocomplete="off" spellcheck="false">
+    <label for="gpt-instructions">Instructions</label>
+    <textarea id="gpt-instructions" class="ci-field" rows="5" placeholder="How should it behave? What should it focus on or avoid?" spellcheck="false"></textarea>
+    <div class="row">
+      <button class="btn btn-danger" id="gpt-del" style="display:none;margin-right:auto" onclick="deleteGptFromUI()">Delete</button>
+      <button class="btn btn-ghost" onclick="closeGptModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveGpt()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- keyboard shortcuts -->
+<div class="overlay" id="shortcuts-overlay" onclick="if(event.target===this)closeShortcuts()">
+  <div class="modal">
+    <h2>Keyboard shortcuts</h2>
+    <div class="sc-list">
+      <div class="sc-row"><span>New chat</span><span><span class="kbd modk">Ctrl</span><span class="kbd">Shift</span><span class="kbd">O</span></span></div>
+      <div class="sc-row"><span>Toggle sidebar</span><span><span class="kbd modk">Ctrl</span><span class="kbd">Shift</span><span class="kbd">S</span></span></div>
+      <div class="sc-row"><span>Focus chat input</span><span><span class="kbd">Shift</span><span class="kbd">Esc</span></span></div>
+      <div class="sc-row"><span>Delete chat</span><span><span class="kbd modk">Ctrl</span><span class="kbd">Shift</span><span class="kbd">⌫</span></span></div>
+      <div class="sc-row"><span>Show shortcuts</span><span><span class="kbd modk">Ctrl</span><span class="kbd">/</span></span></div>
+    </div>
+    <div class="row"><button class="btn btn-ghost" onclick="closeShortcuts()">Close</button></div>
   </div>
 </div>
 
@@ -1009,6 +1077,7 @@ function ensureConvo(){
   activeId = now().toString();
   const c={id:activeId, title:'', messages:[], ts:now()};
   if(pendingProjectId){ c.projectId=pendingProjectId; pendingProjectId=null; }
+  if(pendingGptId){ c.gptId=pendingGptId; pendingGptId=null; }
   convos.unshift(c);
   return c;
 }
@@ -1036,7 +1105,7 @@ function dateGroup(ts){
 function renderChatList(){
   const list=$('#chat-list'); list.innerHTML='';
   const q=(($('#search-input')&&$('#search-input').value)||'').toLowerCase().trim();
-  let shown=convos.slice().sort((a,b)=>b.ts-a.ts);
+  let shown=convos.filter(c=>!c.archived).sort((a,b)=>b.ts-a.ts);
   if(q) shown=shown.filter(c=>(c.title||'').toLowerCase().includes(q) ||
       (c.messages||[]).some(m=>msgText(m).toLowerCase().includes(q)));
   if(!shown.length){
@@ -1071,11 +1140,39 @@ function chatItemMenu(id, anchor){
   menu.innerHTML=`
     <button class="menu-row" data-act="rename"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Rename</button>
     <button class="menu-row" data-act="project"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>${c.projectId?'Move / remove project':'Add to project'}</button>
+    <button class="menu-row" data-act="archive"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><path d="M10 13h4"/></svg>Archive</button>
     <button class="menu-row danger" data-act="delete"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Delete</button>`;
   document.body.appendChild(menu);
   menu.querySelector('[data-act="rename"]').onclick=(e)=>{e.stopPropagation();closeAllPops();startRename(id);};
   menu.querySelector('[data-act="project"]').onclick=(e)=>{e.stopPropagation();closeAllPops();projectPicker(id,anchor);};
+  menu.querySelector('[data-act="archive"]').onclick=(e)=>{e.stopPropagation();closeAllPops();archiveConvo(id);};
   menu.querySelector('[data-act="delete"]').onclick=(e)=>{e.stopPropagation();closeAllPops();delConvo(id);};
+}
+
+function archiveConvo(id){
+  const c=convos.find(c=>c.id===id); if(!c) return;
+  c.archived=true; persist();
+  if(activeId===id){ activeId=null; renderThread(); setLanding(); }
+  renderChatList(); showToast('Chat archived');
+}
+function unarchiveConvo(id){
+  const c=convos.find(c=>c.id===id); if(!c) return;
+  c.archived=false; persist(); renderChatList(); renderArchivedList(); showToast('Chat restored');
+}
+// "Archived chats" manager inside Settings.
+function renderArchivedList(){
+  const box=$('#archived-list'); if(!box) return;
+  const arch=convos.filter(c=>c.archived).sort((a,b)=>b.ts-a.ts);
+  box.innerHTML = arch.length ? '' : '<div class="mem-empty">No archived chats.</div>';
+  arch.forEach(c=>{
+    const row=document.createElement('div'); row.className='mem-row';
+    row.innerHTML=`<span>${escapeHtml(c.title||'New chat')}</span>`+
+      `<button class="btn btn-sm btn-ghost" style="width:auto;height:auto">Unarchive</button>`+
+      `<button title="Delete" aria-label="Delete">✕</button>`;
+    row.querySelector('.btn').onclick=()=>unarchiveConvo(c.id);
+    row.querySelector('[title="Delete"]').onclick=()=>{ delConvo(c.id); renderArchivedList(); };
+    box.appendChild(row);
+  });
 }
 
 // Small picker to move a chat into (or out of) a project.
@@ -1124,13 +1221,13 @@ function delConvo(id){
 function loadConvo(id){
   exitFeature(); attachments=[]; renderAttachments();
   activeId=id; const c=convos.find(c=>c.id===id); if(!c) return;
-  renderThread(); renderChatList(); setLanding(); scrollBottom(true);
+  pendingGptId=null; renderThread(); renderChatList(); setLanding(); updateGptContext(); scrollBottom(true);
   if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');
 }
 
 function newChat(){
   exitFeature(); attachments=[]; renderAttachments();
-  activeId=null; renderThread(); renderChatList(); setLanding();
+  activeId=null; pendingGptId=null; renderThread(); renderChatList(); setLanding(); updateGptContext();
   input.value=''; autosize(input); input.focus();
   if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');
 }
@@ -1189,7 +1286,7 @@ function toggleTemp(){
 }
 function showView(v){
   if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');
-  if(v==='chat' || !FEATURES[v]){ exitFeature(); renderThread(); setLanding(); return; }
+  if(v==='chat' || !FEATURES[v]){ exitFeature(); renderThread(); setLanding(); updateGptContext(); return; }
   currentView=v; activeId=null;
   document.body.classList.remove('landing'); document.body.classList.add('viewing');
   document.querySelectorAll('.sb-nav .nav-item').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
@@ -1198,8 +1295,9 @@ function showView(v){
   const f=FEATURES[v];
   if(v==='library'){ renderLibrary(); }
   else if(v==='projects'){ renderProjects(); }   // sidebar Projects always opens the list
+  else if(v==='gpts'){ renderGpts(); }
   else { thread.innerHTML=`<div class="feature"><div class="ficon">${f.icon}</div><h2>${f.t}</h2><p>${f.d}</p></div>`; }
-  renderChatList();
+  renderChatList(); updateGptContext();
 }
 
 // ── Library (images made with "Create image") — stored in IndexedDB, since
@@ -1295,6 +1393,70 @@ function renderProjectDetail(id){
     <h2 class="proj-title">${escapeHtml(p.name)}</h2>
     <button class="btn btn-primary" onclick="newChatInProject('${id}')">New chat in this project</button>
     <div class="proj-chats">${rows}</div></div>`;
+}
+
+// ── GPTs (custom versions of ChatGPT) ────────────────────────────────────
+function saveGpts(){ try{ localStorage.setItem('cg_gpts', JSON.stringify(gpts)); }catch(e){} }
+function seedGpts(){
+  if(localStorage.getItem('cg_gpts_seeded')) return;
+  if(!gpts.length){
+    gpts=[
+      {id:'gpt_code', name:'Code Copilot', desc:'Write, debug, and explain code.', instructions:'You are an expert programmer. Give correct, idiomatic, runnable code with brief explanations. Point out edge cases and gotchas.', ts:1},
+      {id:'gpt_writer', name:'Writing Coach', desc:'Sharpen your writing and tone.', instructions:'You are a sharp writing coach. Improve clarity, concision, and tone. Offer concrete rewrites and explain the key changes briefly.', ts:2},
+      {id:'gpt_chef', name:'Chef', desc:'Recipes from what you have.', instructions:'You are a friendly chef. Suggest recipes from the ingredients and constraints given, with clear steps and quantities.', ts:3},
+    ];
+    saveGpts();
+  }
+  localStorage.setItem('cg_gpts_seeded','1');
+}
+function renderGpts(){
+  $('#view-title').textContent='GPTs';
+  const cards=gpts.slice().sort((a,b)=>(a.ts||0)-(b.ts||0)).map(g=>`
+    <div class="gpt-card" onclick="startGpt('${g.id}')">
+      <div class="gpt-ava">${escapeHtml((g.name||'?').trim().slice(0,1).toUpperCase())}</div>
+      <div class="gpt-info"><div class="gpt-name">${escapeHtml(g.name||'Untitled')}</div><div class="gpt-desc">${escapeHtml(g.desc||'')}</div></div>
+      <button class="gpt-edit" title="Edit" onclick="event.stopPropagation();editGpt('${g.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+    </div>`).join('');
+  thread.innerHTML=`<div class="gpt-wrap"><div class="proj-head"><h2>GPTs</h2>
+      <button class="btn btn-sm btn-primary" onclick="editGpt('')">+ Create a GPT</button></div>
+    <p class="gpt-sub">Custom versions of ChatGPT that combine instructions for a topic or task.</p>
+    <div class="gpt-grid">${cards||'<p class="proj-empty">No GPTs yet — create one.</p>'}</div></div>`;
+}
+function startGpt(id){ const g=gptById(id); if(!g) return; pendingGptId=id; showView('chat'); updateGptContext(); showToast('Chatting with '+g.name); input.focus(); }
+// Show which GPT the current/next chat uses, with a way to clear it.
+function updateGptContext(){
+  const c=activeConvo();
+  const gid=(c&&c.gptId) || pendingGptId || null;
+  const bar=$('#gpt-context'); if(!bar) return;
+  const g=gid?gptById(gid):null;
+  if(g && currentView==='chat'){ bar.style.display='flex'; $('#gpt-context-name').textContent=g.name; }
+  else bar.style.display='none';
+}
+function clearGptContext(){ pendingGptId=null; const c=activeConvo(); if(c) c.gptId=null; updateGptContext(); }
+
+// Create / edit GPT modal
+let editingGptId=null;
+function editGpt(id){
+  editingGptId=id||null;
+  const g=id?gptById(id):null;
+  $('#gpt-modal-title').textContent=g?'Edit GPT':'Create a GPT';
+  $('#gpt-name').value=g?g.name:''; $('#gpt-desc').value=g?(g.desc||''):''; $('#gpt-instructions').value=g?(g.instructions||''):'';
+  $('#gpt-del').style.display=g?'inline-flex':'none';
+  $('#gpt-overlay').classList.add('open'); $('#gpt-name').focus();
+}
+function closeGptModal(){ $('#gpt-overlay').classList.remove('open'); }
+function saveGpt(){
+  const name=$('#gpt-name').value.trim(); if(!name){ $('#gpt-name').focus(); return; }
+  const desc=$('#gpt-desc').value.trim(), instructions=$('#gpt-instructions').value.trim();
+  if(editingGptId){ const g=gptById(editingGptId); if(g){ g.name=name; g.desc=desc; g.instructions=instructions; } }
+  else { gpts.push({id:'gpt_'+now()+'_'+Math.random().toString(36).slice(2,6), name, desc, instructions, ts:now()}); }
+  saveGpts(); closeGptModal(); if(currentView==='gpts') renderGpts(); updateGptContext();
+}
+function deleteGptFromUI(){
+  if(!editingGptId) return; if(!confirm('Delete this GPT?')) return;
+  gpts=gpts.filter(g=>g.id!==editingGptId);
+  convos.forEach(c=>{ if(c.gptId===editingGptId) c.gptId=null; });
+  saveGpts(); persist(); closeGptModal(); if(currentView==='gpts') renderGpts(); updateGptContext();
 }
 
 // ── Render thread from model ────────────────────────────────────────────
@@ -1681,7 +1843,7 @@ function openSettingsModal(){
   $('#key-input').value=getKey();
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
-  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; renderMemoryList(); }
+  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; renderMemoryList(); renderArchivedList(); }
   applyTheme();
   $('#settings-overlay').classList.add('open');
   refreshBalance();
@@ -1802,9 +1964,29 @@ function showToast(msg){
 }
 
 // ── Init ────────────────────────────────────────────────────────────────
+// ── Keyboard shortcuts (ChatGPT-style) ──────────────────────────────────
+function openShortcuts(){ $('#shortcuts-overlay').classList.add('open'); }
+function closeShortcuts(){ $('#shortcuts-overlay').classList.remove('open'); }
+document.addEventListener('keydown', e=>{
+  const mod=e.ctrlKey||e.metaKey;
+  if(mod && e.shiftKey && e.code==='KeyO'){ e.preventDefault(); newChat(); }
+  else if(mod && e.shiftKey && e.code==='KeyS'){ e.preventDefault(); toggleSidebar(); }
+  else if(mod && e.shiftKey && e.key==='Backspace'){
+    e.preventDefault();
+    if(activeId && confirm('Delete this chat?')) delConvo(activeId);
+  }
+  else if(mod && !e.shiftKey && e.key==='/'){ e.preventDefault(); openShortcuts(); }
+  else if(e.shiftKey && e.key==='Escape'){ e.preventDefault(); input.focus(); }
+  else if(e.key==='Escape' && !e.shiftKey){
+    ['#shortcuts-overlay','#gpt-overlay'].forEach(s=>{ const o=$(s); if(o) o.classList.remove('open'); });
+  }
+});
+
 (function init(){
   const justLoggedIn = captureKeyFromUrl();   // capture a portal-returned key, if any
   applyTheme();
+  seedGpts();
+  if(/Mac|iP(hone|ad|od)/.test(navigator.platform)) document.querySelectorAll('.kbd.modk').forEach(k=>k.textContent='⌘');
   pickModel(currentModel);
   renderThread(); renderChatList(); updateAccount(); setLanding();
   updateComposerButtons();
