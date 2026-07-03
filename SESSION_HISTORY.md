@@ -32,6 +32,51 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-03 — Live end-to-end verification (whole system, both domains)
+
+**Request:** "Verify everything works together on the live site."
+
+Verified three complementary ways; production left untouched (a couple of test rows
+inserted directly into the shared DB were fetched then deleted — `shares/tasks/groups/
+files` all back to 0; both backends still healthy).
+
+**1. Both live public domains — 54/54 headless checks each, zero console errors**
+(`chatgpt.comparegpt.io` + `chatgpt.platformai.org`): sidebar exactly New chat/Search/
+New group chat/Library/Files/GPTs/Projects (no Sora); every feature view opens; full
+**+** menu (image/search/deep-research/canvas/code/GitHub/finances/Add-from-library) +
+tool pills; **all tool system-context instructions assemble together** (code
+interpreter, tasks, both connectors, time-aware memory, canvas) in one request;
+voice button + neural-TTS voice picker; shortcuts overlay; every Settings section
+(voice/custom-instructions/memory/tasks/connectors+token/archived/shared-links) +
+invalid-key→token.comparegpt.io reminder. **Full endpoint security contract:**
+balance-spending POSTs (chat/sync/connector/run/tts/share/tasks-create/groups-create)
+→ 401 on invalid key; every gated endpoint → 401 with no key; GET list endpoints →
+200 (own empty list) with a key present (key hash = identity, no balance spent to
+list); removed `/api/video` → 404; public bad invite/share → 404; `/health` → 200.
+(Two initial "failures" were wrong test expectations — GET lists correctly 200 with a
+key — corrected; not code bugs.)
+
+**2. Real generation stack — the EXACT deployed `chatgpt-web` code against the real
+subscription + live external services** (scratch DB, key-gate off, to avoid spending
+prod balance): chat streamed real GPT-5.5 (`LIVE-CHAT-OK`); code interpreter ran in the
+Docker sandbox (`5050`); connector hit live Yahoo Finance (`AAPL 308.63`); a scheduled
+task went the full loop — created → server scheduler fired → result (`TASK-LIVE-OK`)
+written into the sync store; group chat AI reply generated under the claim lock
+(`GROUP-LIVE-OK`).
+
+**3. Cross-domain integration:** deployed `index.html`/`main.py` byte-identical across
+git source, :8200, and :8201; both backends share one `sync.db` (same inode); a test
+share inserted once was served **identically by both public domains**, then 404 on
+both after deletion — proving the shared-DB foundation for sync/groups/tasks/shares/
+files across devices and domains. Git clean, `HEAD == origin/main`.
+
+**Not done (by choice):** no real PWM balance spent / no prod key minted, so the live
+public domains' *generation* was proven via the byte-identical deployed code rather
+than by charging an account. A true through-the-front-door live generation needs a
+valid `sk-pwm-` key.
+
+---
+
 ## 2026-07-03 — Per-project file uploads (closes the parity list)
 
 **Request:** "Please build per-project file uploads next" — the last audited gap
