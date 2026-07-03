@@ -326,6 +326,10 @@
   #filepick .modal{max-width:520px}
   #filepick .fp-list{max-height:52vh;overflow-y:auto;display:flex;flex-direction:column;gap:4px;margin-top:8px}
   #filepick .file-row{cursor:pointer}
+  .proj-files-sec{margin-top:22px;border-top:1px solid var(--border);padding-top:16px}
+  .proj-files-head{display:flex;align-items:center;gap:8px}
+  .proj-files-head h3{font-size:16px;font-weight:600;flex:1}
+  .proj-files-note{font-size:12.5px;color:var(--text-3);margin:4px 0 12px}
   /* group chats */
   .grp-head{display:flex;align-items:center;gap:10px;max-width:var(--maxw);margin:0 auto;
         padding:14px 20px 8px;width:100%}
@@ -813,6 +817,7 @@
 
 <!-- composer "+" add menu -->
 <input type="file" id="lib-file-input" multiple style="display:none" onchange="onLibraryUpload(this)">
+<input type="file" id="proj-file-input" multiple style="display:none" onchange="onProjectFileUpload(this)">
 <input type="file" id="file-input" multiple style="display:none" onchange="onFiles(this)"
   accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif,application/pdf,.pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.json,.js,.jsx,.ts,.tsx,.py,.java,.c,.cpp,.h,.hpp,.go,.rs,.rb,.php,.html,.css,.scss,.xml,.yml,.yaml,.toml,.ini,.cfg,.log,.sh,.bash,.sql,text/*">
 <div class="pop" id="plus-menu">
@@ -1515,6 +1520,7 @@ function loadConvo(id){
   exitFeature(); attachments=[]; renderAttachments();
   activeId=id; const c=convos.find(c=>c.id===id); if(!c) return;
   pendingGptId=null; closeCanvas(); renderThread(); renderChatList(); setLanding(); updateGptContext(); scrollBottom(true);
+  if(c.projectId) ensureProjectFiles(c.projectId);
   if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');
 }
 
@@ -1618,7 +1624,7 @@ async function fetchFiles(){
   try{ const r=await fetch('/api/files',{headers:{'X-PWM-Key':getKey()}}); if(!r.ok) return []; return (await r.json()).files||[]; }
   catch(e){ return []; }
 }
-async function uploadToLibrary(f){
+async function uploadToLibrary(f, project){
   const lower=f.name.toLowerCase();
   let kind='text', content='';
   try{
@@ -1632,7 +1638,7 @@ async function uploadToLibrary(f){
   if(!content.trim()){ showToast(f.name+' had no readable content'); return false; }
   try{
     const r=await fetch('/api/files',{method:'POST',headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
-      body:JSON.stringify({name:f.name, kind, content})});
+      body:JSON.stringify({name:f.name, kind, content, project:project||undefined})});
     if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.detail||'Upload failed'); }
     return true;
   }catch(e){ showToast(e.message||'Upload failed'); return false; }
@@ -1799,7 +1805,53 @@ function renderProjectDetail(id){
     </div>
     <h2 class="proj-title">${escapeHtml(p.name)}</h2>
     <button class="btn btn-primary" onclick="newChatInProject('${id}')">New chat in this project</button>
+    <div class="proj-files-sec">
+      <div class="proj-files-head"><h3>Project files</h3>
+        <button class="btn btn-sm btn-ghost" onclick="document.getElementById('proj-file-input').click()">Add files</button></div>
+      <p class="proj-files-note">Files added here are shared as context with every chat in this project (up to 40).</p>
+      <div class="file-list" id="proj-file-list"><div class="proj-empty">Loading…</div></div>
+    </div>
     <div class="proj-chats">${rows}</div></div>`;
+  renderProjectFiles(id);
+}
+let projectFilesCache={};   // pid -> [{name,kind,content}] injected into project chats
+// Load a project's files (with content) so systemContext can include them.
+async function ensureProjectFiles(pid){
+  if(!pid || !getKey()) return;
+  try{
+    const r=await fetch('/api/project-files/'+pid,{headers:{'X-PWM-Key':getKey()}});
+    if(r.ok) projectFilesCache[pid]=(await r.json()).files||[];
+  }catch(e){}
+}
+async function renderProjectFiles(pid){
+  const box=$('#proj-file-list'); if(!box) return;
+  if(!getKey()){ box.innerHTML='<div class="proj-empty">Log in to add project files.</div>'; return; }
+  let files=[];
+  try{ const r=await fetch('/api/files?project='+encodeURIComponent(pid),{headers:{'X-PWM-Key':getKey()}}); if(r.ok) files=(await r.json()).files||[]; }catch(e){}
+  if(!$('#proj-file-list')) return;   // view changed while loading
+  if(!files.length){ box.innerHTML='<div class="proj-empty">No files yet — add reference files for this project.</div>'; return; }
+  box.innerHTML='';
+  files.forEach(f=>{
+    const row=document.createElement('div'); row.className='file-row';
+    row.innerHTML='<div class="fi">'+fileIcon(f.kind)+'</div><div class="fmeta"><div class="fname">'+escapeHtml(f.name)+'</div>'
+      +'<div class="fsub">'+fmtSize(f.size)+'</div></div>'
+      +'<div class="fbtns"><button class="btn btn-sm btn-danger">Remove</button></div>';
+    row.querySelector('.btn-danger').onclick=async()=>{
+      try{ await fetch('/api/files/'+f.id,{method:'DELETE',headers:{'X-PWM-Key':getKey()}}); }catch(e){}
+      delete projectFilesCache[pid]; renderProjectFiles(pid);
+    };
+    box.appendChild(row);
+  });
+}
+async function onProjectFileUpload(inp){
+  const files=[...inp.files]; inp.value='';
+  const pid=activeProject; if(!pid || !files.length) return;
+  showToast('Adding '+files.length+' file'+(files.length>1?'s':'')+' to the project…');
+  let ok=0;
+  for(const f of files){ if(await uploadToLibrary(f, pid)) ok++; }
+  if(ok) showToast(ok+' file'+(ok>1?'s':'')+' added to the project');
+  delete projectFilesCache[pid];
+  if(activeProject===pid) renderProjectFiles(pid);
 }
 
 // ── GPTs (custom versions of ChatGPT) ────────────────────────────────────
@@ -2648,6 +2700,7 @@ async function onSend(e){
   const c=ensureConvo();
   if(codeInterp) c.ciOn=true;   // keep code interpreter armed for this conversation
   ciStopped=false;
+  if(c.projectId && !projectFilesCache[c.projectId]) await ensureProjectFiles(c.projectId);
   const um={role:'user',content:text,ts:now()}; if(atts.length) um.atts=atts;
   c.messages.push(um);
   c.messages.push({role:'assistant',variants:[{content:'',ts:now()}],vi:0});
@@ -2924,6 +2977,15 @@ function systemContext(c){
       +'{"type":"weekly","day":<0=Monday\u20266=Sunday>,"time":"HH:MM"} \u2014 all in the user\u2019s local time. '
       +'Right now it is '+nowLocal.toString().slice(0,21)+' locally. One marker per reply, then STOP; '
       +'the confirmation returns as the next message. Only create a task when the user clearly wants something scheduled.');
+  }
+  if(c && c.projectId && projectFilesCache[c.projectId] && projectFilesCache[c.projectId].length){
+    const pf=projectFilesCache[c.projectId];
+    const texts=pf.filter(f=>f.content);
+    const imgs=pf.filter(f=>f.kind==='image');
+    let s='Files attached to this project (shared context for every chat here). Use them when relevant.';
+    texts.forEach(f=>{ s+='\n\n[File: '+f.name+']\n'+f.content; });
+    if(imgs.length) s+='\n\n(Also attached: '+imgs.map(f=>f.name).join(', ')+' — image file'+(imgs.length>1?'s':'')+'.)';
+    out.push(s);
   }
   const connList=[];
   if(connEnabled('github')) connList.push('- github: search_repos{q}, repo_info{repo}, read_file{repo:"owner/name", path, ref?} (a directory path lists its entries), list_issues{repo, state?}, search_code{q} (needs the user\'s GitHub token)');

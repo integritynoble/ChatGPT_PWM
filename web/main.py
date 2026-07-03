@@ -209,9 +209,14 @@ def _sync_db() -> sqlite3.Connection:
         """CREATE TABLE IF NOT EXISTS files(
             id TEXT PRIMARY KEY, user TEXT NOT NULL, name TEXT NOT NULL,
             kind TEXT NOT NULL, content TEXT NOT NULL, size INTEGER NOT NULL,
-            ts INTEGER NOT NULL)"""
+            ts INTEGER NOT NULL, project TEXT)"""
     )
+    # Migrate older DBs that created `files` before the project column existed.
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(files)")]
+    if "project" not in cols:
+        conn.execute("ALTER TABLE files ADD COLUMN project TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS files_user ON files(user, ts)")
+    conn.execute("CREATE INDEX IF NOT EXISTS files_proj ON files(user, project)")
     return conn
 
 
@@ -708,12 +713,15 @@ async def _start_task_scheduler():
 FILES_MAX_COUNT = 100
 FILES_MAX_ONE = 8_000_000          # one file (data-URL images run large)
 FILES_MAX_TOTAL = 60_000_000       # per user
+PROJECT_MAX_FILES = 40             # ChatGPT's per-project cap
+PROJECT_CTX_MAX = 200_000          # cap the text injected into a project chat
 
 
 class FileUploadRequest(BaseModel):
     name: str
     kind: str                      # "text" | "image"
     content: str                   # extracted text, or a data: URL for images
+    project: Optional[str] = None  # None → general library; else project id
 
 
 def _files_auth(req: Request):
@@ -737,6 +745,7 @@ async def file_upload(req: Request, body: FileUploadRequest):
     size = len(content)
     if size > FILES_MAX_ONE:
         raise HTTPException(status_code=413, detail="File too large (max ~8 MB).")
+    project = (body.project or "").strip() or None
     conn = _sync_db()
     try:
         count, total = conn.execute(
@@ -745,27 +754,62 @@ async def file_upload(req: Request, body: FileUploadRequest):
             raise HTTPException(status_code=409, detail=f"Library is full ({FILES_MAX_COUNT} files). Delete some first.")
         if total + size > FILES_MAX_TOTAL:
             raise HTTPException(status_code=413, detail="Library storage is full. Delete some files first.")
+        if project:
+            pcount = conn.execute(
+                "SELECT COUNT(*) FROM files WHERE user=? AND project=?", (user, project)).fetchone()[0]
+            if pcount >= PROJECT_MAX_FILES:
+                raise HTTPException(status_code=409, detail=f"This project already has {PROJECT_MAX_FILES} files (the max).")
         fid = _uuid.uuid4().hex[:16]
         now_ms = int(_time.time() * 1000)
         conn.execute(
-            "INSERT INTO files(id,user,name,kind,content,size,ts) VALUES(?,?,?,?,?,?,?)",
-            (fid, user, name, kind, content, size, now_ms))
+            "INSERT INTO files(id,user,name,kind,content,size,ts,project) VALUES(?,?,?,?,?,?,?,?)",
+            (fid, user, name, kind, content, size, now_ms, project))
         conn.commit()
     finally:
         conn.close()
-    return {"id": fid, "name": name, "kind": kind, "size": size, "ts": now_ms}
+    return {"id": fid, "name": name, "kind": kind, "size": size, "ts": now_ms, "project": project}
 
 
 @app.get("/api/files")
-async def file_list(req: Request):
+async def file_list(req: Request, project: Optional[str] = None):
+    user = _files_auth(req)
+    conn = _sync_db()
+    try:
+        if project:
+            rows = conn.execute(
+                "SELECT id,name,kind,size,ts FROM files WHERE user=? AND project=? ORDER BY ts DESC",
+                (user, project)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id,name,kind,size,ts FROM files WHERE user=? AND project IS NULL ORDER BY ts DESC",
+                (user,)).fetchall()
+    finally:
+        conn.close()
+    return {"files": [{"id": r[0], "name": r[1], "kind": r[2], "size": r[3], "ts": r[4]} for r in rows]}
+
+
+@app.get("/api/project-files/{pid}")
+async def project_files_content(req: Request, pid: str):
+    """Project files WITH text content, for injecting as context into project chats."""
     user = _files_auth(req)
     conn = _sync_db()
     try:
         rows = conn.execute(
-            "SELECT id,name,kind,size,ts FROM files WHERE user=? ORDER BY ts DESC", (user,)).fetchall()
+            "SELECT name,kind,content FROM files WHERE user=? AND project=? ORDER BY ts", (user, pid)).fetchall()
     finally:
         conn.close()
-    return {"files": [{"id": r[0], "name": r[1], "kind": r[2], "size": r[3], "ts": r[4]} for r in rows]}
+    out = []
+    budget = PROJECT_CTX_MAX
+    for (name, kind, content) in rows:
+        if kind != "text":
+            out.append({"name": name, "kind": kind, "content": ""})
+            continue
+        chunk = content[:budget]
+        budget -= len(chunk)
+        out.append({"name": name, "kind": "text", "content": chunk})
+        if budget <= 0:
+            break
+    return {"files": out}
 
 
 @app.get("/api/files/{fid}")

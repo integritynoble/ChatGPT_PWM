@@ -32,6 +32,48 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-03 — Per-project file uploads (closes the parity list)
+
+**Request:** "Please build per-project file uploads next" — the last audited gap
+(ChatGPT Projects hold up to 40 reference files shared as context with every chat in
+the project).
+
+**Backend** (`web/main.py`): reused the `files` table with a new nullable **`project`**
+column — general-library files have `project IS NULL`, project files carry the
+project id. **Live migration**: `_sync_db()` checks `PRAGMA table_info(files)` and
+`ALTER TABLE ADD COLUMN project` when missing (verified on the live DB — column added,
+existing rows preserved as NULL). `POST /api/files` takes optional `project` (enforces
+the **40-file/project** cap → 409); `GET /api/files?project=<id>` scopes the list (and
+the general list now filters to `project IS NULL` so project files don't leak into the
+library); new **`GET /api/project-files/{pid}`** returns the project's text files WITH
+content (total capped at 200 KB) for context injection.
+
+**Frontend** (`web/index.html`): the project detail view gains a **"Project files"**
+section — Add files button + list with Remove, note "shared as context with every
+chat in this project (up to 40)". Uploads reuse `uploadToLibrary(f, projectId)`.
+Chats scoped to a project get the files as context: `projectFilesCache[pid]` is warmed
+by `ensureProjectFiles()` (on `loadConvo` of a project chat and awaited in `onSend`
+before streaming), and `systemContext(c)` injects `[File: name]\n<content>` for each
+text file (images listed by name). A non-project chat gets nothing.
+
+**Verified:** backend curl (project vs general scoping, content endpoint) + live DB
+schema check. Headless **11/11** against the real backend — Files section renders,
+upload → project list, **general library excludes project files**, project scope
+includes them, **systemContext injects the file content for a project convo but not a
+plain one**, `onSend`/`loadConvo` cache-warming, remove, and the **40-file cap → 409**.
+All regressions green — **247 checks** across 14 suites (project-files 11, files 18,
+groups 18, tasks 22, connectors 22, ci 19, sync 11, share 22, canvas 33, voice 20,
+gpts 16, archive 15, +no-sora; one archive flake re-ran clean). Live on both domains:
+`/api/project-files` + `?project=` 401-gated, UI markers served, migration applied.
+
+**Parity status: the ChatGPT feature surface is now fully covered.** Every sidebar
+item and tool — chat/thinking/search/deep-research, image gen + Library, Files (with
+project scoping), GPTs, Projects, Canvas, code interpreter, connectors, voice + neural
+TTS, memory (time-aware), custom instructions, scheduled tasks, cross-device sync,
+share links, and group chats — is a real, working, tested feature.
+
+---
+
 ## 2026-07-03 — Persistent file library (upload once, reuse in any chat)
 
 **Request:** "Please build the persistent file library next."
