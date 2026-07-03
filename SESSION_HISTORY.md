@@ -70,19 +70,29 @@ share inserted once was served **identically by both public domains**, then 404 
 both after deletion — proving the shared-DB foundation for sync/groups/tasks/shares/
 files across devices and domains. Git clean, `HEAD == origin/main`.
 
-**Login (clarification):** users do NOT paste an `sk-pwm-` key — they click **Continue
-with token.comparegpt.io / physicsworldmodel.org / Google** and sign in with their PWM
-account; the portal's `/api/auth/app-login` mints a consumer `sk-pwm-` key server-side
-and redirects back with `#pwm_key=…`, which `captureKeyFromUrl()` stores automatically.
-The manual key field is only a fallback. **SSO flow confirmed live:** `GET
-token.comparegpt.io/api/auth/app-login?redirect_uri=https://chatgpt.comparegpt.io/`
-→ **302 `/login?next=…`** (portal reachable, 200; endpoint validates redirect_uri).
+**Login: users do NOT paste an `sk-pwm-` key** — they click **Continue with
+token.comparegpt.io / physicsworldmodel.org / Google**, sign in with their PWM account,
+and the portal's `/api/auth/app-login` mints a consumer `sk-pwm-` key server-side and
+redirects back with `#pwm_key=…`, which `captureKeyFromUrl()` stores + scrubs
+automatically (manual key field is only a fallback).
 
-**Not done (by choice):** the live public domains' *generation* was proven via the
-byte-identical deployed code rather than by driving a real account session, since
-completing an SSO login requires real portal/Google credentials (not to hand) and
-would spend real PWM balance. The end-to-end login mechanism itself is confirmed live
-up to the portal sign-in page.
+**FULL SSO FLOW PROVEN END-TO-END ON THE LIVE SITE (11/11):** authenticated a portal
+session via SIWE with a self-generated wallet keypair (`/siwe/nonce` → sign →
+`/siwe/verify`, real `access_token` cookie), then in a real browser on the live
+`chatgpt.comparegpt.io`: logged-out state + SSO buttons → **clicked "Continue with
+token.comparegpt.io"** → portal `app-login` saw the session, **minted a real
+`sk-pwm-` key**, 302'd back → ChatGPT **captured it automatically** (`sk-pwm-rzB4…`),
+scrubbed the URL, dismissed the login modal ("Logged in" toast). The minted key is
+**genuinely valid at the backend** — `/api/balance` returns *"Insufficient PWM
+balance."* (balance 0), NOT "Invalid PWM key"; and a real front-door `/api/chat` call
+authenticated through to **402 Insufficient balance, not 401** — i.e. auth passed, only
+the self-generated wallet's zero balance stopped generation. A funded PWM account would
+get 200 + real output at that exact point. (`token/backend/app/routers/auth.py`
+`app_login` + `siwe.py` verified in source; email/register path also works but a fresh
+email has no linked wallet → correctly bounces to `/login`, hence SIWE for the test.)
+
+**Test artifacts (harmless, on the prod portal):** one self-generated 0-balance wallet
+session and one throwaway `ssotest+…@example.com` user row — no PII, no balance, inert.
 
 ---
 
