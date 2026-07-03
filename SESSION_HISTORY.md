@@ -32,6 +32,52 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-03 — Sora video generation (/api/video, real videos from the Sora view)
+
+**Request:** "Please build Sora video generation next" — the final parity item.
+
+**Reality check first:** no GPU (`nvidia-smi` absent), no `OPENAI_API_KEY` anywhere
+(`~/.codex/auth.json` has OAuth tokens only), subscription backend is chat+image only.
+So `/api/video` has **two engines**:
+- **`sora-api`** — the official OpenAI video API (`/v1/videos`, sora-2: create → poll
+  → download), used automatically iff `SORA_API_KEY`/`OPENAI_API_KEY` is set. Written
+  and wired but dormant on this host (no key).
+- **`frames` (active)** — generates 2–5 keyframes through the **subscription's
+  image_generation tool** (per-frame shot-progression prompts: establishing → closer →
+  detail → concluding; consistent-style instruction), then assembles a real MP4 with
+  **ffmpeg**: per-frame Ken Burns zoompan (alternating in/out, 3 s @ 24 fps) +
+  0.6 s xfade crossfades; sizes 16:9→1280×720, 9:16→720×1280, 1:1→960×960. PWM
+  billing: frame-generation usage tokens accumulated and charged once per job.
+
+**Job model** (needed because 8200 runs 2 uvicorn workers): file-backed jobs under
+`~/pwm/chatgpt-sync/video-jobs/<id>/` (`state.json` + `out.mp4`) so ANY worker/backend
+serves polls; jobs GC'd after 24 h at creation time. `POST /api/video {prompt, aspect,
+frames}` → `{id}` (PWM-gated; 400 empty prompt; 503 if no ffmpeg and no key);
+`GET /api/video/{id}` → state (id regex-validated); `GET /api/video/{id}/file` → MP4.
+
+**Frontend:** the Sora sidebar view is now real — prompt textarea, aspect (16:9/9:16/
+1:1) + length (~7s/~10s/~12s = 3/4/5 frames) selects, Generate; progress card polls
+every 2.5 s (status detail + progress bar; resumes after reload via `cg_video_job`,
+incl. from init on any view); completed videos are fetched as blobs into **IndexedDB**
+(`cg_library` DB bumped to **v2** with a `videos` store) and shown in a gallery grid —
+`<video controls loop muted>`, caption, Download, Delete. Failure shows the error card.
+
+**Verified:** real end-to-end backend run — 2 frames generated through the live
+subscription + assembled: 5.4 s, 848 KB MP4 (frame inspected: high-quality balloon-
+over-mountains render; motion recipe validated separately with ffmpeg test sources).
+Headless UI 14/14 against a stubbed `/api/video` serving the REAL generated MP4
+(composer, job store, progress card w/ detail, completion → IndexedDB → gallery,
+playable duration ≈5.4 s, reload persistence, delete, zero console errors). All
+regressions green — **171 checks** across 9 suites. Live: `/api/video` 401-gated on
+both domains, Sora UI markers served. (Test-server note: backgrounded uvicorns die
+with their shell here — run server+suite in ONE Bash invocation, or setsid dies too.)
+
+**With this, the ChatGPT parity list is fully closed** — every sidebar surface and
+tool is a real, working feature. Drop an `OPENAI_API_KEY` into the service envs to
+upgrade Sora from the frames engine to true sora-2 generation with zero code changes.
+
+---
+
 ## 2026-07-03 — Connectors (GitHub + Finances via /api/connector)
 
 **Request:** "Please build connectors next." Previously descoped over per-service

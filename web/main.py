@@ -360,6 +360,255 @@ async def run_code(req: Request, body: RunRequest):
         return await run_in_threadpool(_run_sandboxed, code)
 
 
+# ── Sora video generation (/api/video) ───────────────────────────────────
+# Two engines: the official OpenAI video API when OPENAI_API_KEY/SORA_API_KEY
+# is configured, else a built-in fallback that generates keyframes through the
+# subscription's image_generation tool and assembles a real MP4 with ffmpeg
+# (Ken Burns pan/zoom + crossfades). Jobs are file-backed so every uvicorn
+# worker (and both backends) can serve status/file requests.
+
+import re as _re
+import threading
+
+from fastapi.responses import FileResponse
+
+VIDEO_JOBS_DIR = os.environ.get(
+    "CHATGPT_VIDEO_DIR", os.path.expanduser("~/pwm/chatgpt-sync/video-jobs")
+)
+SORA_API_KEY = os.environ.get("SORA_API_KEY") or os.environ.get("OPENAI_API_KEY")
+VIDEO_SIZES = {"16:9": (1280, 720), "9:16": (720, 1280), "1:1": (960, 960)}
+VIDEO_MAX_FRAMES = 5
+VIDEO_JOB_TTL = 24 * 3600
+_FRAME_SHOTS = [
+    "wide establishing shot",
+    "medium shot, the scene has progressed slightly",
+    "closer shot from a different angle, further progression",
+    "close-up detail shot, the action continues",
+    "final wide shot, the scene concludes",
+]
+
+
+class VideoRequest(BaseModel):
+    prompt: str
+    aspect: str = "16:9"
+    frames: int = 3
+
+
+def _job_dir(jid: str) -> str:
+    return os.path.join(VIDEO_JOBS_DIR, jid)
+
+
+def _job_state_path(jid: str) -> str:
+    return os.path.join(_job_dir(jid), "state.json")
+
+
+def _write_state(jid: str, **kw) -> None:
+    path = _job_state_path(jid)
+    state = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            state = json.load(f)
+    except Exception:  # noqa: BLE001
+        pass
+    state.update(kw)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(state, f)
+    os.replace(tmp, path)
+
+
+def _read_state(jid: str) -> Optional[dict]:
+    try:
+        with open(_job_state_path(jid), "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _gc_video_jobs() -> None:
+    try:
+        cutoff = _time.time() - VIDEO_JOB_TTL
+        for name in os.listdir(VIDEO_JOBS_DIR):
+            d = os.path.join(VIDEO_JOBS_DIR, name)
+            if os.path.isdir(d) and os.path.getmtime(d) < cutoff:
+                shutil.rmtree(d, ignore_errors=True)
+    except FileNotFoundError:
+        pass
+
+
+async def _gen_frame(prompt: str, jid: str, idx: int, size: tuple) -> tuple[str, int, int]:
+    """Generate one keyframe via the subscription image tool. Returns (path, ptoks, ctoks)."""
+    msg = (f"Generate an image only, no commentary: {prompt}. "
+           f"({_FRAME_SHOTS[idx % len(_FRAME_SHOTS)]}; consistent style and subject across a sequence)")
+    last_b64 = None
+    ptoks = ctoks = 0
+    async for chunk in subscription.stream_chat(
+        [{"role": "user", "content": msg}], subscription.DEFAULT_MODEL, False, True
+    ):
+        for line in chunk.decode(errors="replace").splitlines():
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                obj = json.loads(data)
+            except Exception:  # noqa: BLE001
+                continue
+            img = obj.get("image") or ""
+            if img.startswith("data:image/png;base64,"):
+                last_b64 = img.split(",", 1)[1]
+            usage = obj.get("usage")
+            if usage:
+                ptoks = usage.get("prompt_tokens", 0)
+                ctoks = usage.get("completion_tokens", 0)
+    if not last_b64:
+        raise RuntimeError("image generation returned no image")
+    path = os.path.join(_job_dir(jid), f"frame_{idx}.png")
+    with open(path, "wb") as f:
+        f.write(base64.b64decode(last_b64))
+    return path, ptoks, ctoks
+
+
+def _assemble_video(jid: str, frame_paths: List[str], size: tuple) -> str:
+    """Ken Burns each frame, then crossfade-concat into out.mp4. Blocking."""
+    w, h = size
+    d = _job_dir(jid)
+    clips = []
+    fps, secs, dur = 24, 3, 72
+    for i, fp in enumerate(frame_paths):
+        zoom = (f"zoompan=z='1+0.0020*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={dur}:s={w}x{h}:fps={fps}"
+                if i % 2 == 0 else
+                f"zoompan=z='1.15-0.0020*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={dur}:s={w}x{h}:fps={fps}")
+        clip = os.path.join(d, f"clip_{i}.mp4")
+        subprocess.run(
+            ["ffmpeg", "-loglevel", "error", "-loop", "1", "-i", fp, "-filter_complex",
+             f"scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},{zoom}",
+             "-t", str(secs), "-pix_fmt", "yuv420p", "-y", clip],
+            check=True, timeout=120, capture_output=True)
+        clips.append(clip)
+    out = os.path.join(d, "out.mp4")
+    if len(clips) == 1:
+        shutil.copy(clips[0], out)
+        return out
+    inputs, filters, prev = [], [], "0"
+    for i, c in enumerate(clips):
+        inputs += ["-i", c]
+    for i in range(1, len(clips)):
+        label = f"v{i}"
+        offset = i * (secs - 0.6)
+        filters.append(f"[{prev}][{i}]xfade=transition=fade:duration=0.6:offset={offset:.1f}[{label}]")
+        prev = label
+    subprocess.run(
+        ["ffmpeg", "-loglevel", "error", *inputs, "-filter_complex", ";".join(filters),
+         "-map", f"[{prev}]", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-y", out],
+        check=True, timeout=300, capture_output=True)
+    return out
+
+
+async def _sora_api_job(jid: str, prompt: str, size: tuple) -> None:
+    """Official OpenAI video API path (requires an API key with video access)."""
+    headers = {"Authorization": f"Bearer {SORA_API_KEY}"}
+    async with httpx.AsyncClient(timeout=60, headers=headers) as cx:
+        r = await cx.post("https://api.openai.com/v1/videos",
+                          json={"model": "sora-2", "prompt": prompt,
+                                "size": f"{size[0]}x{size[1]}", "seconds": "8"})
+        r.raise_for_status()
+        vid = r.json()["id"]
+        _write_state(jid, status="generating", progress=10, detail="Sora is generating…")
+        for _ in range(120):
+            await asyncio.sleep(5)
+            s = (await cx.get(f"https://api.openai.com/v1/videos/{vid}")).json()
+            st = s.get("status")
+            _write_state(jid, progress=int(s.get("progress") or 50))
+            if st == "completed":
+                content = await cx.get(f"https://api.openai.com/v1/videos/{vid}/content")
+                content.raise_for_status()
+                with open(os.path.join(_job_dir(jid), "out.mp4"), "wb") as f:
+                    f.write(content.content)
+                return
+            if st in ("failed", "cancelled"):
+                raise RuntimeError(f"Sora job {st}: {s.get('error') or ''}")
+        raise RuntimeError("Sora job timed out")
+
+
+async def _video_job(jid: str, prompt: str, aspect: str, frames: int, pwm_key: Optional[str]) -> None:
+    size = VIDEO_SIZES.get(aspect, VIDEO_SIZES["16:9"])
+    try:
+        if SORA_API_KEY:
+            await _sora_api_job(jid, prompt, size)
+        else:
+            total_p = total_c = 0
+            frame_paths = []
+            for i in range(frames):
+                _write_state(jid, status="generating", progress=int(i / frames * 80),
+                             detail=f"Creating frame {i + 1} of {frames}…")
+                path, p, cts = await _gen_frame(prompt, jid, i, size)
+                total_p += p
+                total_c += cts
+                frame_paths.append(path)
+            _write_state(jid, status="assembling", progress=85, detail="Assembling video…")
+            await run_in_threadpool(_assemble_video, jid, frame_paths, size)
+            if pwm_key and (total_p or total_c):
+                await pwm_billing.charge(pwm_key, subscription.DEFAULT_MODEL, total_p, total_c)
+        _write_state(jid, status="completed", progress=100, detail="")
+    except Exception as e:  # noqa: BLE001
+        _write_state(jid, status="failed", progress=0,
+                     detail="", error=f"{type(e).__name__}: {str(e)[:300]}")
+
+
+@app.post("/api/video")
+async def create_video(req: Request, body: VideoRequest):
+    pwm_key = (
+        req.headers.get("X-PWM-Key")
+        or req.headers.get("Authorization", "").removeprefix("Bearer ")
+    ).strip() or None
+    if PWM_KEY_REQUIRED and not pwm_key:
+        raise HTTPException(status_code=401, detail="Missing PWM key. Set X-PWM-Key header.")
+    if pwm_key:
+        check = await pwm_billing.check_balance(pwm_key)
+        if not check.valid:
+            code = 402 if "balance" in check.reason.lower() else 401
+            raise HTTPException(status_code=code, detail=check.reason)
+
+    prompt = (body.prompt or "").strip()[:2000]
+    if not prompt:
+        raise HTTPException(status_code=400, detail="Describe the video you want.")
+    if shutil.which("ffmpeg") is None and not SORA_API_KEY:
+        raise HTTPException(status_code=503, detail="Video generation is not available on this server.")
+    frames = max(2, min(VIDEO_MAX_FRAMES, int(body.frames or 3)))
+
+    os.makedirs(VIDEO_JOBS_DIR, exist_ok=True)
+    _gc_video_jobs()
+    jid = uuid.uuid4().hex[:16]
+    os.makedirs(_job_dir(jid), exist_ok=True)
+    _write_state(jid, id=jid, status="queued", progress=0, prompt=prompt,
+                 aspect=body.aspect, created=int(_time.time() * 1000),
+                 engine=("sora-api" if SORA_API_KEY else "frames"))
+    asyncio.create_task(_video_job(jid, prompt, body.aspect, frames, pwm_key))
+    return {"id": jid}
+
+
+@app.get("/api/video/{jid}")
+async def video_status(jid: str):
+    if not _re.fullmatch(r"[a-f0-9]{16}", jid):
+        raise HTTPException(status_code=404, detail="No such video job.")
+    state = _read_state(jid)
+    if not state:
+        raise HTTPException(status_code=404, detail="No such video job.")
+    return state
+
+
+@app.get("/api/video/{jid}/file")
+async def video_file(jid: str):
+    if not _re.fullmatch(r"[a-f0-9]{16}", jid):
+        raise HTTPException(status_code=404, detail="No such video job.")
+    path = os.path.join(_job_dir(jid), "out.mp4")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Video not ready.")
+    return FileResponse(path, media_type="video/mp4", filename="sora.mp4")
+
+
 # ── Connectors (server-side proxy: GitHub, Finances) ─────────────────────
 # Token-light by design: GitHub works unauthenticated for public data (a
 # user-supplied PAT unlocks code search / private repos and higher limits);
