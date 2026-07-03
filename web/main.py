@@ -178,6 +178,15 @@ def _sync_db() -> sqlite3.Connection:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS shares_user ON shares(user, convo_id)"
     )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS tasks(
+            id TEXT PRIMARY KEY, user TEXT NOT NULL, pwm_key TEXT,
+            title TEXT NOT NULL, prompt TEXT NOT NULL, schedule TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            next_run INTEGER, last_run INTEGER, created INTEGER NOT NULL)"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS tasks_user ON tasks(user)")
+    conn.execute("CREATE INDEX IF NOT EXISTS tasks_due ON tasks(status, next_run)")
     return conn
 
 
@@ -358,6 +367,311 @@ async def run_code(req: Request, body: RunRequest):
 
     async with _ci_sema:
         return await run_in_threadpool(_run_sandboxed, code)
+
+
+# ── Scheduled tasks (ChatGPT Tasks) ──────────────────────────────────────
+# Tasks are created from chat (a [[task]] marker handled like other tools) and
+# run server-side on a scheduler. Results are written into the user's sync
+# store as a conversation ("⏰ <title>"), so they appear in the sidebar on the
+# next sync pull — on any device. The PWM key is stored with the task so runs
+# can be balance-checked and billed like interactive turns.
+
+import asyncio
+import datetime as _dt
+import time as _time
+import uuid as _uuid
+
+TASK_TICK = int(os.environ.get("CHATGPT_TASK_TICK", "30"))
+TASK_MAX_PER_USER = 10
+TASK_MAX_OUTPUT = 20_000
+TASK_TYPES = {"once", "daily", "weekly"}
+
+
+class TaskCreateRequest(BaseModel):
+    title: str
+    prompt: str
+    schedule: dict
+
+
+class TaskPatchRequest(BaseModel):
+    status: str
+
+
+def _task_next_run(sched: dict, after_ms: int) -> Optional[int]:
+    """Next run (epoch ms, UTC) strictly after `after_ms`; None when exhausted."""
+    t = sched.get("type")
+    if t == "once":
+        at = int(sched.get("at") or 0)
+        return at if at > after_ms else None
+    tzmin = int(sched.get("tz") or 0)  # minutes to ADD to UTC for local wall time
+    try:
+        hh, mm = [int(x) for x in str(sched.get("time") or "09:00").split(":")[:2]]
+    except ValueError:
+        hh, mm = 9, 0
+    local = _dt.datetime.fromtimestamp(after_ms / 1000, _dt.timezone.utc) + _dt.timedelta(minutes=tzmin)
+    cand = local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if t == "weekly":
+        day = int(sched.get("day") or 0)  # 0=Monday … 6=Sunday
+        cand += _dt.timedelta(days=(day - cand.weekday()) % 7)
+    step = _dt.timedelta(days=7 if t == "weekly" else 1)
+    while cand <= local:
+        cand += step
+    return int((cand - _dt.timedelta(minutes=tzmin)).timestamp() * 1000)
+
+
+def _task_auth_sync(req: Request):
+    pwm_key = (
+        req.headers.get("X-PWM-Key")
+        or req.headers.get("Authorization", "").removeprefix("Bearer ")
+    ).strip() or None
+    if not pwm_key:
+        raise HTTPException(status_code=401, detail="Tasks require a PWM key.")
+    return hashlib.sha256(pwm_key.encode()).hexdigest(), pwm_key
+
+
+def _task_row_public(r) -> dict:
+    (tid, title, prompt, schedule, status, next_run, last_run, created) = r
+    return {"id": tid, "title": title, "prompt": prompt,
+            "schedule": json.loads(schedule), "status": status,
+            "next_run": next_run, "last_run": last_run, "created": created}
+
+
+@app.post("/api/tasks")
+async def create_task(req: Request, body: TaskCreateRequest):
+    user, pwm_key = _task_auth_sync(req)
+    check = await pwm_billing.check_balance(pwm_key)
+    if not check.valid:
+        raise HTTPException(status_code=401, detail=check.reason)
+    title = (body.title or "").strip()[:80]
+    prompt = (body.prompt or "").strip()[:4000]
+    sched = body.schedule or {}
+    if not title or not prompt:
+        raise HTTPException(status_code=400, detail="Task needs a title and a prompt.")
+    if sched.get("type") not in TASK_TYPES:
+        raise HTTPException(status_code=400, detail="Schedule type must be once, daily, or weekly.")
+    now_ms = int(_time.time() * 1000)
+    next_run = _task_next_run(sched, now_ms)
+    if next_run is None:
+        raise HTTPException(status_code=400, detail="That time is already in the past.")
+    conn = _sync_db()
+    try:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM tasks WHERE user=? AND status IN ('active','paused')", (user,)
+        ).fetchone()[0]
+        if count >= TASK_MAX_PER_USER:
+            raise HTTPException(status_code=409, detail=f"Task limit reached ({TASK_MAX_PER_USER}). Delete one first.")
+        tid = _uuid.uuid4().hex[:12]
+        conn.execute(
+            "INSERT INTO tasks(id,user,pwm_key,title,prompt,schedule,status,next_run,created) "
+            "VALUES(?,?,?,?,?,?,?,?,?)",
+            (tid, user, pwm_key, title, prompt, json.dumps(sched), "active", next_run, now_ms))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"id": tid, "title": title, "next_run": next_run, "status": "active"}
+
+
+@app.get("/api/tasks")
+async def list_tasks(req: Request):
+    user, _ = _task_auth_sync(req)
+    conn = _sync_db()
+    try:
+        rows = conn.execute(
+            "SELECT id,title,prompt,schedule,status,next_run,last_run,created "
+            "FROM tasks WHERE user=? ORDER BY created DESC", (user,)).fetchall()
+    finally:
+        conn.close()
+    return {"tasks": [_task_row_public(r) for r in rows]}
+
+
+@app.patch("/api/tasks/{tid}")
+async def patch_task(req: Request, tid: str, body: TaskPatchRequest):
+    user, _ = _task_auth_sync(req)
+    if body.status not in ("active", "paused"):
+        raise HTTPException(status_code=400, detail="Status must be active or paused.")
+    conn = _sync_db()
+    try:
+        row = conn.execute("SELECT user, schedule FROM tasks WHERE id=?", (tid,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="No such task.")
+        if row[0] != user:
+            raise HTTPException(status_code=403, detail="Not your task.")
+        next_run = None
+        if body.status == "active":
+            next_run = _task_next_run(json.loads(row[1]), int(_time.time() * 1000))
+            if next_run is None:
+                raise HTTPException(status_code=400, detail="This one-time task is already in the past.")
+        conn.execute("UPDATE tasks SET status=?, next_run=? WHERE id=?",
+                     (body.status, next_run, tid))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"id": tid, "status": body.status}
+
+
+@app.delete("/api/tasks/{tid}")
+async def delete_task(req: Request, tid: str):
+    user, _ = _task_auth_sync(req)
+    conn = _sync_db()
+    try:
+        row = conn.execute("SELECT user FROM tasks WHERE id=?", (tid,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="No such task.")
+        if row[0] != user:
+            raise HTTPException(status_code=403, detail="Not your task.")
+        conn.execute("DELETE FROM tasks WHERE id=?", (tid,))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"deleted": tid}
+
+
+def _append_task_result(user: str, tid: str, title: str, prompt: str, text: str) -> None:
+    """Write a run's output into the user's sync store as a '⏰ <title>' conversation."""
+    cid = f"task_{tid}"
+    now_ms = int(_time.time() * 1000)
+    conn = _sync_db()
+    try:
+        row = conn.execute(
+            "SELECT data FROM items WHERE user=? AND kind='convo' AND id=? AND deleted=0",
+            (user, cid)).fetchone()
+        convo = None
+        if row:
+            try:
+                convo = json.loads(row[0])
+            except Exception:  # noqa: BLE001
+                convo = None
+        if not convo:
+            convo = {"id": cid, "title": ("⏰ " + title)[:48], "taskId": tid,
+                     "messages": [{"role": "user", "content": prompt, "ts": now_ms}], "ts": now_ms}
+        convo.setdefault("messages", []).append(
+            {"role": "assistant", "variants": [{"content": text, "ts": now_ms}], "vi": 0})
+        convo["ts"] = now_ms
+        convo["taskId"] = tid
+        conn.execute(
+            "INSERT INTO items(user,kind,id,ts,deleted,data) VALUES(?,?,?,?,0,?) "
+            "ON CONFLICT(user,kind,id) DO UPDATE SET ts=excluded.ts, deleted=0, data=excluded.data",
+            (user, "convo", cid, now_ms, json.dumps(convo)))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+async def _run_task(tid: str, user: str, pwm_key: Optional[str], title: str, prompt: str) -> None:
+    try:
+        if pwm_key:
+            check = await pwm_billing.check_balance(pwm_key)
+            if not check.valid:  # invalid key / no balance → pause instead of burning runs
+                conn = _sync_db()
+                try:
+                    conn.execute("UPDATE tasks SET status='paused', next_run=NULL WHERE id=?", (tid,))
+                    conn.commit()
+                finally:
+                    conn.close()
+                _append_task_result(user, tid, title, prompt,
+                                    "⚠️ Task paused: " + (check.reason or "PWM key/balance check failed."))
+                return
+        # Give the run the user's memories + custom instructions from the sync store.
+        msgs = []
+        conn = _sync_db()
+        try:
+            kv = dict(conn.execute(
+                "SELECT id, data FROM items WHERE user=? AND kind='kv' AND deleted=0", (user,)).fetchall())
+        finally:
+            conn.close()
+        try:
+            mem = json.loads(kv.get("memories") or "{}")
+            if not mem.get("off") and mem.get("list"):
+                msgs.append({"role": "system", "content": "Known facts about the user:\n" +
+                             "\n".join("- " + (m.get("text") or "") for m in mem["list"][-50:])})
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            ci = json.loads(kv.get("ci") or "{}")
+            parts = []
+            if ci.get("about"):
+                parts.append("About the user:\n" + ci["about"])
+            if ci.get("style"):
+                parts.append("How the user wants responses:\n" + ci["style"])
+            if parts:
+                msgs.append({"role": "system", "content": "\n\n".join(parts)})
+        except Exception:  # noqa: BLE001
+            pass
+        now_str = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        msgs.append({"role": "system", "content":
+                     f"This is the automated scheduled task {title!r} running at {now_str}. "
+                     "Produce the deliverable directly — no preamble about being a scheduled task."})
+        msgs.append({"role": "user", "content": prompt})
+
+        full = ""
+        ptoks = ctoks = 0
+        async for chunk in subscription.stream_chat(msgs, subscription.DEFAULT_MODEL, False, False):
+            for line in chunk.decode(errors="replace").splitlines():
+                if not line.startswith("data:"):
+                    continue
+                d = line[5:].strip()
+                if not d or d == "[DONE]":
+                    continue
+                try:
+                    obj = json.loads(d)
+                except Exception:  # noqa: BLE001
+                    continue
+                delta = (obj.get("choices") or [{}])[0].get("delta", {}).get("content", "")
+                if delta:
+                    full += delta
+                usage = obj.get("usage")
+                if usage:
+                    ptoks = usage.get("prompt_tokens", 0)
+                    ctoks = usage.get("completion_tokens", 0)
+        _append_task_result(user, tid, title, prompt, full.strip()[:TASK_MAX_OUTPUT] or "(no output)")
+        if pwm_key and (ptoks or ctoks):
+            await pwm_billing.charge(pwm_key, subscription.DEFAULT_MODEL, ptoks, ctoks)
+    except Exception as e:  # noqa: BLE001
+        try:
+            _append_task_result(user, tid, title, prompt,
+                                f"⚠️ Task run failed: {type(e).__name__}: {str(e)[:200]}")
+        except Exception:  # noqa: BLE001
+            pass
+
+
+async def _task_scheduler() -> None:
+    """Claim-and-run loop. Every worker/backend runs one; the atomic UPDATE on
+    next_run guarantees each due task fires exactly once across all of them."""
+    while True:
+        try:
+            await asyncio.sleep(TASK_TICK)
+            now_ms = int(_time.time() * 1000)
+            conn = _sync_db()
+            claimed = []
+            try:
+                rows = conn.execute(
+                    "SELECT id,user,pwm_key,title,prompt,schedule FROM tasks "
+                    "WHERE status='active' AND next_run IS NOT NULL AND next_run<=?",
+                    (now_ms,)).fetchall()
+                for (tid, user, key, title, prompt, sched_json) in rows:
+                    try:
+                        nxt = _task_next_run(json.loads(sched_json), now_ms)
+                    except Exception:  # noqa: BLE001
+                        nxt = None
+                    cur = conn.execute(
+                        "UPDATE tasks SET last_run=?, next_run=?, status=? WHERE id=? AND next_run<=?",
+                        (now_ms, nxt, ("active" if nxt else "done"), tid, now_ms))
+                    if cur.rowcount == 1:
+                        claimed.append((tid, user, key, title, prompt))
+                conn.commit()
+            finally:
+                conn.close()
+            for c in claimed:
+                asyncio.create_task(_run_task(*c))
+        except asyncio.CancelledError:
+            return
+        except Exception:  # noqa: BLE001
+            pass  # never let the scheduler die
+
+
+@app.on_event("startup")
+async def _start_task_scheduler():
+    asyncio.create_task(_task_scheduler())
 
 
 # ── Connectors (server-side proxy: GitHub, Finances) ─────────────────────

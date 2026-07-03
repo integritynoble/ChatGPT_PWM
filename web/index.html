@@ -875,6 +875,9 @@
       </div>
       <div style="text-align:right;margin-top:6px"><button class="btn btn-sm btn-ghost" onclick="clearMemoriesFromUI()">Clear all memories</button></div>
 
+      <label style="margin-top:16px">Scheduled tasks</label>
+      <div id="tasks-list" class="mem-list"></div>
+
       <label style="margin-top:16px">Connectors</label>
       <div class="conn-row">
         <label class="mem-toggle"><input type="checkbox" id="conn-github" onchange="setConn('github',this.checked)"> GitHub</label>
@@ -1886,8 +1889,94 @@ async function runConnectorAndContinue(c, call, model, depth){
   streamReply(model, null, depth+1);
 }
 
+// ── Scheduled tasks (created from chat via [[task]] markers) ────────────
+const TASK_RE=/\[\[task\]\]\r?\n?([\s\S]*?)\r?\n?\[\[\/task\]\]/i;
+const TASK_OPEN_RE=/\[\[task\]\][\s\S]*$/i;
+function extractTask(text){
+  const m=text.match(TASK_RE); if(!m) return null;
+  try{ const o=JSON.parse(m[1].trim()); return (o&&o.title&&o.prompt&&o.when)?o:null; }catch(e){ return null; }
+}
+function hideTaskCall(text){ return text.replace(TASK_RE,'').replace(TASK_OPEN_RE,'').trim(); }
+const DAY_NAMES=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+function describeSchedule(sc){
+  if(sc.type==='once') return 'once on '+new Date(sc.at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  if(sc.type==='daily') return 'daily at '+sc.time;
+  if(sc.type==='weekly') return 'every '+(DAY_NAMES[sc.day||0])+' at '+sc.time;
+  return '';
+}
+// Convert the model's local-time "when" into a server schedule.
+function taskScheduleFromWhen(w){
+  if(w.type==='once'){
+    const at=new Date(w.at_local||'').getTime();
+    if(!at || isNaN(at)) return null;
+    return {type:'once', at};
+  }
+  const tz=-new Date().getTimezoneOffset();
+  if(w.type==='daily') return {type:'daily', time:(w.time||'09:00'), tz};
+  if(w.type==='weekly') return {type:'weekly', day:(+w.day||0), time:(w.time||'09:00'), tz};
+  return null;
+}
+async function runTaskAndContinue(c, call, model, depth){
+  const sched=taskScheduleFromWhen(call.when||{});
+  const tool={role:'tool', running:true, taskReq:{title:call.title, schedule:sched}, ts:now()};
+  c.messages.push(tool); touchConvo(c); persist(); renderThread(); scrollBottom(true);
+  let out;
+  if(!sched){ out={error:'Could not understand the schedule.'}; }
+  else{
+    try{
+      const r=await fetch('/api/tasks',{method:'POST',
+        headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
+        body:JSON.stringify({title:call.title, prompt:call.prompt, schedule:sched})});
+      out = r.ok ? await r.json() : {error:((await r.json().catch(()=>({}))).detail)||('HTTP '+r.status)};
+    }catch(e){ out={error:'Could not reach the task service.'}; }
+  }
+  tool.running=false; tool.taskReq={...tool.taskReq, ...out};
+  persist(); renderThread(); scrollBottom(true);
+  if(ciStopped){ setGenerating(false); abortCtl=null; return; }
+  c.messages.push({role:'assistant', variants:[{content:'',ts:now()}], vi:0});
+  streamReply(model, null, depth+1);
+}
+// "Scheduled tasks" manager in Settings.
+async function renderTasksList(){
+  const box=$('#tasks-list'); if(!box) return;
+  if(!getKey()){ box.innerHTML='<div class="mem-empty">Log in to see scheduled tasks.</div>'; return; }
+  box.innerHTML='<div class="mem-empty">Loading…</div>';
+  try{
+    const resp=await fetch('/api/tasks',{headers:{'X-PWM-Key':getKey()}});
+    if(!resp.ok) throw new Error();
+    const rows=(await resp.json()).tasks||[];
+    const liveRows=rows.filter(t=>t.status!=='done');
+    box.innerHTML = liveRows.length ? '' : '<div class="mem-empty">No scheduled tasks — ask ChatGPT to remind you of something.</div>';
+    liveRows.forEach(t=>{
+      const row=document.createElement('div'); row.className='mem-row';
+      const when=describeSchedule(t.schedule)||'';
+      const next=t.next_run?new Date(t.next_run).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
+      row.innerHTML=`<span><b>${escapeHtml(t.title)}</b><br><small style="color:var(--text-3)">${escapeHtml(when)}${t.status==='paused'?' · paused':' · next '+escapeHtml(next)}</small></span>`+
+        `<button class="btn btn-sm btn-ghost" style="width:auto;height:auto">${t.status==='paused'?'Resume':'Pause'}</button>`+
+        `<button title="Delete" aria-label="Delete">✕</button>`;
+      row.querySelector('.btn').onclick=async()=>{
+        try{ await fetch('/api/tasks/'+t.id,{method:'PATCH',headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},body:JSON.stringify({status:t.status==='paused'?'active':'paused'})}); }catch(e){}
+        renderTasksList();
+      };
+      row.querySelector('button[title="Delete"]').onclick=async()=>{
+        try{ await fetch('/api/tasks/'+t.id,{method:'DELETE',headers:{'X-PWM-Key':getKey()}}); }catch(e){}
+        renderTasksList();
+      };
+      box.appendChild(row);
+    });
+  }catch(e){ box.innerHTML='<div class="mem-empty">Couldn\u2019t load tasks.</div>'; }
+}
+
 // Render a tool (execution) message: output panel with stdout/stderr + images.
 function toolMessageHtml(m){
+  if(m.taskReq){
+    const t=m.taskReq;
+    let body;
+    if(m.running) body='<div class="ci-run"><span class="spin"></span> Scheduling task\u2026</div>';
+    else if(t.error) body='<div class="ci-body"><div class="ci-err">'+escapeHtml(t.error)+'</div></div>';
+    else body='<div class="ci-body"><div class="ci-none">\u2705 <b>'+escapeHtml(t.title)+'</b> \u2014 '+escapeHtml(describeSchedule(t.schedule||{})||'scheduled')+'. Results will arrive as a \u23f0 chat. Manage tasks in Settings.</div></div>';
+    return '<div class="ci-block"><div class="ci-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Task</div>'+body+'</div>';
+  }
   if(m.conn){
     const cn=m.conn;
     const label=CONN_LABELS[cn.service]||cn.service;
@@ -1995,7 +2084,7 @@ function renderMessage(m, idx){
         </div>
       </div>`;
     const md=msg.querySelector('.markdown');
-    if(content){ md.innerHTML=renderMarkdown(hideConnCall(renderRunnable(content))); enhance(md); }
+    if(content){ md.innerHTML=renderMarkdown(hideTaskCall(hideConnCall(renderRunnable(content)))); enhance(md); }
     msg.querySelector('.act-copy').onclick=(e)=>copyBtn(e.currentTarget, content);
     if(m.rating==='up') msg.querySelector('.act-good').classList.add('ok');
     if(m.rating==='down') msg.querySelector('.act-bad').classList.add('ok');
@@ -2417,6 +2506,10 @@ async function streamReply(model, hint, depth){
       return {role:'user', content:textPart};
     }
     if(m.role==='tool'){
+      if(m.taskReq){
+        const t=m.taskReq;
+        return {role:'user', content:'[Task scheduling result] '+(t.error?('error: '+t.error):('scheduled \u201c'+t.title+'\u201d '+(describeSchedule(t.schedule||{})||'')))};
+      }
       if(m.conn){
         const cn=m.conn;
         let s='[Connector result] '+cn.service+'.'+cn.action+'\n';
@@ -2460,7 +2553,7 @@ async function streamReply(model, hint, depth){
       streamCanvasLive(sp.canvas);
       md.innerHTML=renderMarkdown(sp.chat)+canvasCardHtml(sp.canvas.title, sp.open);
     } else {
-      md.innerHTML=renderMarkdown(hideConnCall(renderRunnable(forDisplay(full))));
+      md.innerHTML=renderMarkdown(hideTaskCall(hideConnCall(renderRunnable(forDisplay(full)))));
     }
     md.classList.add('cursor'); scrollBottom(); raf=null;
   };
@@ -2500,7 +2593,11 @@ async function streamReply(model, hint, depth){
       }
     }
   }catch(err){
-    if(err.name!=='AbortError'){ showToast(err.message); }
+    if(err.name!=='AbortError'){
+      let m=err.message||'Something went wrong';
+      if(/pwm key|balance/i.test(m)) m+=' \u2014 get a valid token at token.comparegpt.io';
+      showToast(m);
+    }
   }finally{
     if(raf) cancelAnimationFrame(raf);
     md.classList.remove('cursor');
@@ -2518,6 +2615,7 @@ async function streamReply(model, hint, depth){
       // Code interpreter: run any [[run-python]] block, then let the model continue.
       const code = ciActive(c) ? extractRunPython(full) : null;
       const connCall = extractConnector(full);
+      const taskCall = extractTask(full);
       if(code && depth<CI_MAX_STEPS && !ciStopped){
         continuing=true;
         abortCtl=null;
@@ -2526,6 +2624,10 @@ async function streamReply(model, hint, depth){
         continuing=true;
         abortCtl=null;
         runConnectorAndContinue(c, connCall, model, depth);
+      } else if(taskCall && depth<CI_MAX_STEPS && !ciStopped){
+        continuing=true;
+        abortCtl=null;
+        runTaskAndContinue(c, taskCall, model, depth);
       }
     } else {
       md.innerHTML='<span style="color:var(--text-3)">No response.</span>';
@@ -2556,7 +2658,7 @@ function openSettingsModal(){
   $('#key-input').value=getKey();
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
-  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; renderMemoryList(); renderArchivedList(); renderSharedLinks(); }
+  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; renderMemoryList(); renderArchivedList(); renderSharedLinks(); renderTasksList(); }
   applyTheme();
   $('#settings-overlay').classList.add('open');
   refreshBalance();
@@ -2595,8 +2697,15 @@ function clearMemoriesFromUI(){ if(memories.length && !confirm('Clear all memori
 // The memory system message: known memories + how to save new ones.
 function memoryBlock(){
   if(!memoryEnabled()) return '';
-  let s='You have persistent memory of this user across conversations.';
-  if(memories.length) s+='\nKnown facts about the user:\n'+memories.map(m=>'- '+m.text).join('\n');
+  const day=ts=>{ try{ return new Date(ts).toISOString().slice(0,10); }catch(e){ return ''; } };
+  let s='You have persistent memory of this user across conversations. Today is '+day(now())+'.';
+  if(memories.length){
+    s+='\nKnown facts about the user, each with the date it was saved:\n'
+      +memories.map(m=>'- [saved '+(m.ts?day(m.ts):'earlier')+'] '+m.text).join('\n')
+      +'\nBe time-aware: interpret each fact relative to its saved date. Plans or events that '
+      +'were upcoming when saved may have already happened by today — refer to those in the '
+      +'past tense, and do not present outdated plans or old ages/roles as current.';
+  }
   s+='\n\nIf the user shares a durable fact worth remembering long-term (preferences, '
     +'identity, ongoing projects), append at the very end of your reply a line formatted '
     +'EXACTLY as [[memory: <concise fact>]]. It is saved and hidden from the user. Do not '
@@ -2631,6 +2740,16 @@ function systemContext(c){
          '\n\nWhen the user asks for changes to it, reply with the full updated artifact inside the canvas markers (keep the same title unless asked to change it).';
     }
     out.push(s);
+  }
+  {
+    const nowLocal=new Date();
+    out.push('Scheduled tasks: you can schedule work to run later or repeatedly (reminders, digests, check-ins). '
+      +'When the user asks for one, emit EXACTLY:\n'
+      +'[[task]]\n{"title":"<short title>","prompt":"<what to do when it runs, self-contained>","when":{...}}\n[[/task]]\n'
+      +'"when" is one of: {"type":"once","at_local":"YYYY-MM-DDTHH:MM"} | {"type":"daily","time":"HH:MM"} | '
+      +'{"type":"weekly","day":<0=Monday\u20266=Sunday>,"time":"HH:MM"} \u2014 all in the user\u2019s local time. '
+      +'Right now it is '+nowLocal.toString().slice(0,21)+' locally. One marker per reply, then STOP; '
+      +'the confirmation returns as the next message. Only create a task when the user clearly wants something scheduled.');
   }
   const connList=[];
   if(connEnabled('github')) connList.push('- github: search_repos{q}, repo_info{repo}, read_file{repo:"owner/name", path, ref?} (a directory path lists its entries), list_issues{repo, state?}, search_code{q} (needs the user\'s GitHub token)');
@@ -2685,10 +2804,16 @@ async function refreshBalance(){
     const r=await fetch('/api/balance',{headers:{'X-PWM-Key':k}});
     const d=await r.json();
     if(d.valid && d.balance!=null) line.textContent=`Balance: ${Number(d.balance).toFixed(2)} PWM`;
+    else if(d.valid===false) line.innerHTML=invalidKeyHtml(d.reason);
     else line.textContent=d.reason||'Could not verify balance.';
   }catch(e){ line.textContent=''; }
 }
 
+// Invalid key → point the user at the token portal directly.
+function invalidKeyHtml(reason){
+  return escapeHtml(reason||'Invalid PWM key.')
+    +' <a href="https://token.comparegpt.io" target="_blank" rel="noopener" style="color:#7eb6ff;text-decoration:underline">Get a valid token at token.comparegpt.io</a>';
+}
 function updateAccount(){
   const k=getKey();
   $('#acct-sub').textContent = k ? 'Manage account' : 'Log in';
@@ -2699,7 +2824,9 @@ function refreshAccountHead(){
   const bal=$('#acct-head-bal'); bal.textContent = k ? '' : 'Log in to start';
   if(k){
     fetch('/api/balance',{headers:{'X-PWM-Key':k}}).then(r=>r.json()).then(d=>{
-      bal.textContent = (d.valid && d.balance!=null) ? `${Number(d.balance).toFixed(2)} PWM available` : (d.reason||'');
+      if(d.valid && d.balance!=null) bal.textContent=`${Number(d.balance).toFixed(2)} PWM available`;
+      else if(d.valid===false) bal.innerHTML=invalidKeyHtml(d.reason);
+      else bal.textContent=d.reason||'';
     }).catch(()=>{ bal.textContent=''; });
   }
 }
@@ -2796,6 +2923,9 @@ function applySync(items){
     const localById={}; convos.forEach(c=>localById[c.id]=c);
     convos=live('convo').map(c=>graftHeavyFields(c, localById[c.id]))
       .sort((a,b)=>(Math.max(b.ts||0,b.uts||0))-(Math.max(a.ts||0,a.uts||0)));
+    convos.forEach(c=>{ const old=localById[c.id];
+      const fresh=(now()-(c.ts||0))<600000;   // only announce runs from the last 10 min
+      if(c.taskId && fresh && (!old || (c.ts||0)>(old.ts||0))) showToast('\u23f0 '+(c.title||'Task')+' ran'); });
     projects=live('project');
     gpts=live('gpt');
     const kv=id=>items.find(i=>i.kind==='kv' && i.id===id && !i.deleted);

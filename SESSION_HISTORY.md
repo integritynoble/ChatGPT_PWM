@@ -32,6 +32,58 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-03 — Scheduled tasks + time-aware memory (+ invalid-key reminder)
+
+**Request:** "Please build scheduled tasks and time-aware memory next." Mid-session
+addition: when the PWM key is invalid, point the user at token.comparegpt.io directly.
+
+**Scheduled tasks** (ChatGPT Tasks):
+- **Backend** (`web/main.py`): `tasks` table in the shared sync DB (stores the raw PWM
+  key so runs can be balance-checked + billed like interactive turns). CRUD:
+  `POST/GET /api/tasks`, `PATCH` (pause/resume, resume recomputes next_run),
+  `DELETE` — all key-gated, owner-checked, 10-task cap, once-in-the-past → 400.
+  `_task_next_run()` handles once/daily/weekly with a client tz offset (unit-tested:
+  past/future once, tz+8 day rollover, weekly weekday, same-day later time).
+  **Scheduler**: every uvicorn worker (both backends) runs a tick loop
+  (`CHATGPT_TASK_TICK`, default 30 s) over the shared DB; an atomic
+  `UPDATE … WHERE next_run<=now` claim guarantees each due task fires exactly once
+  across all workers. Runs pull the user's **memories + custom instructions from the
+  sync store's kv items**, stream through the subscription, then **append the result
+  to a "⏰ <title>" conversation written into the user's sync items** — so it appears
+  in the sidebar on the next sync pull, on any device. Invalid key/balance at run
+  time → task auto-pauses with an explanatory message. Failures append "⚠️ Task run
+  failed" instead of vanishing.
+- **Frontend**: `systemContext()` teaches a `[[task]]{title,prompt,when}[[/task]]`
+  marker (once `at_local` / daily / weekly, local time, with "right now it is …" so
+  the model can compute dates); handled by the same tool loop (hidden markers, "Task"
+  block with ✅ + human schedule, feed-back + continuation). **Settings → "Scheduled
+  tasks"** manager: list with schedule + next-run, Pause/Resume, delete. `applySync`
+  toasts "⏰ <title> ran" for task convos updated in the last 10 min (fresh-run guard
+  so a new device's first pull doesn't toast history).
+
+**Time-aware memory:** `memoryBlock()` now states today's date, stamps every fact
+with its saved date (`[saved 2026-07-03] …`), and instructs the model to interpret
+facts relative to when they were saved — past-tense for elapsed plans, no stale
+ages/roles as current. Server-side task runs get the same memories (dates omitted
+there; list only).
+
+**Invalid-key reminder:** the Settings balance line and the account menu now render
+"Invalid PWM key." with a direct link — *Get a valid token at token.comparegpt.io* —
+and chat-stream 401/402 toasts append the same pointer.
+
+**Verified:** backend e2e with a 2 s tick — real task created, claimed once, ran
+through the live subscription ("TASK-RAN-OK"), landed in the sync store as
+`⏰ Daily hello` (roles user/assistant); 401/400/limit paths. Headless 22/22 (helpers,
+time-aware memoryBlock, marker→real POST→block→continuation, settings
+list/pause/resume/delete, both invalid-key reminder links, task-convo pull + run
+toast). All suites green — **180 checks** (tasks 22, connectors 22 — its stub gained
+`/api/tasks`, ci 19, sync 11, share 22, canvas 33, voice 20, gpts 16, archive 15 —
+its stub hardened, which surfaced it was quietly at 14/15 since the settings modal
+gained async fetches). Live: `/api/tasks` 401-gated on both domains, UI markers
+served, schedulers running in both backends.
+
+---
+
 ## 2026-07-03 — Sora REMOVED (parity correction)
 
 **Request:** "I think there is no sora in ChatGPT… please check it. If there is no
