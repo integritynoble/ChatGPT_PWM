@@ -2792,6 +2792,7 @@ async function streamReply(model, hint, depth){
       signal:abortCtl.signal
     });
     if(!resp.ok){
+      if(resp.status===401){ handleAuthFailure(); throw new Error('__auth401__'); }
       const err=await resp.json().catch(()=>({detail:resp.statusText}));
       throw new Error(err.detail||('HTTP '+resp.status));
     }
@@ -2819,7 +2820,7 @@ async function streamReply(model, hint, depth){
       }
     }
   }catch(err){
-    if(err.name!=='AbortError'){
+    if(err.name!=='AbortError' && err.message!=='__auth401__'){
       let m=err.message||'Something went wrong';
       if(/pwm key|balance/i.test(m)) m+=' \u2014 get a valid token at token.comparegpt.io';
       showToast(m);
@@ -2865,6 +2866,19 @@ async function streamReply(model, hint, depth){
 
 // ── Account / settings ──────────────────────────────────────────────────
 let settingsMode='key';
+// A stored key was rejected (revoked/expired) — clear it and prompt a clean
+// re-login instead of failing chat silently. Guarded so a burst of 401s only
+// triggers one recovery.
+let authRecovering=false;
+function handleAuthFailure(){
+  if(authRecovering || !getKey()) return;
+  authRecovering=true;
+  localStorage.removeItem('cg_pwm_key');
+  updateAccount();
+  showToast('Your session ended — please sign in again');
+  openKeyModal();
+  setTimeout(()=>{ authRecovering=false; }, 2000);
+}
 function openKeyModal(){ settingsMode='key'; openSettingsModal(); }
 function openSettings(){
   closeAllPops();
@@ -3144,7 +3158,7 @@ async function syncNow(){
       const st=await resp.json();
       applySync(st.items||[]);
       localStorage.setItem('cg_tombstones','[]');   // server holds them now
-    }
+    } else if(resp.status===401){ handleAuthFailure(); }   // key revoked/expired → re-login
   }catch(e){ /* offline / server hiccup — next sync catches up */ }
   finally{ syncBusy=false; }
 }
