@@ -32,6 +32,37 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-03 — Account-only login (SSO); drop the visible API-key dependency
+
+**Request:** "Connect the ChatGPT account just based on a token.comparegpt.io or
+physicsworldmodel.org account. Don't depend on an api key."
+
+**Change** (`web/index.html`, login UX only — the SSO plumbing was already there and
+verified): the sign-in modal is now **purely account-based**. Removed from the
+logged-out screen: the "or paste your key" divider, the `sk-pwm-…` **Access key**
+field, and the **Save** button — leaving only the three account buttons (**Continue
+with Google / token.comparegpt.io / physicsworldmodel.org**). Title → "Sign in to
+ChatGPT"; copy → "Sign in with your PWM account to start chatting…" (no "enter your
+access key"). The manual key field is **relocated into full Settings** as a labelled
+*advanced override* ("set automatically when you sign in") so existing/edge users
+aren't stranded; `#balance-line` moved with it. The three logged-out chat gates that
+used to toast "Get a PWM token first" and redirect to the portal root now just
+**open the SSO modal** (`openKeyModal`) with a "Sign in to continue" toast. The
+invisible mint→capture plumbing (`ssoLogin`, `captureKeyFromUrl`, `getKey`) is
+unchanged, so the key still exists under the hood — the user just never sees it.
+
+**Verified:** `node --check` OK; headless 17/17 (login shows only 3 SSO buttons, no
+key field / no "paste your key" / no Save, account-based copy; full Settings still
+has the advanced key field + Save + balance line). **Real SSO end-to-end re-run
+against the LIVE site: 11/11** — "Continue with token.comparegpt.io" → portal mints a
+real `sk-pwm-` key → captured + logged in (test key revoked after). Regressions green
+(gpts 16, archive 15, canvas 33, voice 20, connectors 22, tasks 22 — the tasks suite
+confirms the invalid-key→token.comparegpt.io reminder still works from its new home in
+Settings). Deployed to both live dirs; live copy shows the SSO-only login, zero
+"paste your key"/"enter your access key" strings on either domain.
+
+---
+
 ## 2026-07-03 — Live end-to-end verification (whole system, both domains)
 
 **Request:** "Verify everything works together on the live site."

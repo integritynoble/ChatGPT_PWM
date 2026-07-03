@@ -874,8 +874,8 @@
 <!-- PWM key / settings modal -->
 <div class="overlay" id="settings-overlay">
   <div class="modal">
-    <h2 id="settings-title">Log in to ChatGPT</h2>
-    <p id="settings-desc">Don't have a PWM token? Get one at <a href="https://token.comparegpt.io" target="_blank" rel="noopener" style="color:#7eb6ff;text-decoration:underline">token.comparegpt.io</a>. Then enter your access key below to start chatting.</p>
+    <h2 id="settings-title">Sign in to ChatGPT</h2>
+    <p id="settings-desc">Sign in with your PWM account to start chatting. No account yet? Create one free at <a href="https://token.comparegpt.io" target="_blank" rel="noopener" style="color:#7eb6ff;text-decoration:underline">token.comparegpt.io</a> — it takes a moment.</p>
 
     <div id="login-portals">
       <button class="btn btn-primary btn-block" onclick="ssoLogin('google')">
@@ -884,12 +884,7 @@
       </button>
       <button class="btn btn-ghost btn-block" onclick="ssoLogin('portal')">Continue with token.comparegpt.io</button>
       <button class="btn btn-ghost btn-block" onclick="ssoLogin('pwm')">Continue with physicsworldmodel.org</button>
-      <div class="or-sep">or paste your key</div>
     </div>
-
-    <label for="key-input">Access key</label>
-    <input id="key-input" type="password" placeholder="sk-pwm-…" autocomplete="off" spellcheck="false">
-    <div class="balance" id="balance-line"></div>
 
     <div id="settings-extra" style="display:none">
       <label>Appearance</label>
@@ -945,6 +940,10 @@
       <label style="margin-top:16px">Shared links</label>
       <div id="shared-links" class="mem-list"></div>
 
+      <label for="key-input" style="margin-top:16px">Access key <span style="color:var(--text-3);font-weight:400">— set automatically when you sign in; advanced override only</span></label>
+      <input id="key-input" type="password" placeholder="sk-pwm-…" autocomplete="off" spellcheck="false">
+      <div class="balance" id="balance-line"></div>
+
       <div class="danger-zone">
         <span>Delete all chats on this device</span>
         <button class="btn btn-sm btn-danger" onclick="deleteAllChats()">Delete all</button>
@@ -953,7 +952,7 @@
 
     <div class="row">
       <button class="btn btn-ghost" onclick="closeSettings()">Close</button>
-      <button class="btn btn-primary" onclick="saveKey()">Save</button>
+      <button class="btn btn-primary" id="settings-save-btn" onclick="saveKey()">Save</button>
     </div>
   </div>
 </div>
@@ -2537,7 +2536,7 @@ const voiceSupported = micSupported && !!window.speechSynthesis;
 
 function openVoiceMode(){
   if(!voiceSupported){ showToast('Voice mode needs a browser with speech recognition (Chrome or Edge)'); return; }
-  if(!getKey()){ showToast('Get a PWM token first — taking you to token.comparegpt.io'); gotoPortal(PWM_PORTAL_URL); return; }
+  if(!getKey()){ showToast('Sign in to continue'); openKeyModal(); return; }
   if(generating) return;
   voiceActive=true; voiceMuted=false;
   $('#voice-overlay').classList.add('open');
@@ -2694,7 +2693,7 @@ async function onSend(e){
   const text=input.value.trim();
   if(!text && !attachments.length) return;
   // No PWM token yet → send them to the portal to get one first.
-  if(!getKey()){ showToast('Get a PWM token first — taking you to token.comparegpt.io'); gotoPortal(PWM_PORTAL_URL); return; }
+  if(!getKey()){ showToast('Sign in to continue'); openKeyModal(); return; }
   const atts=attachments.slice(); attachments=[]; renderAttachments();
   input.value=''; autosize(input);
   const c=ensureConvo();
@@ -2874,22 +2873,21 @@ function openSettings(){
 }
 function openSettingsModal(){
   const full = settingsMode==='full';
-  $('#settings-title').textContent = full ? 'Settings' : 'Log in to ChatGPT';
+  $('#settings-title').textContent = full ? 'Settings' : 'Sign in to ChatGPT';
   if(full){
     $('#settings-desc').textContent = 'Manage your account, appearance, and chats. Everything is stored only in this browser.';
   } else {
-    $('#settings-desc').innerHTML = 'Don\'t have a PWM token? Get one at <a href="https://token.comparegpt.io" target="_blank" rel="noopener" style="color:#7eb6ff;text-decoration:underline">token.comparegpt.io</a>. Then enter your access key below to start chatting.';
+    $('#settings-desc').innerHTML = 'Sign in with your PWM account to start chatting. No account yet? Create one free at <a href="https://token.comparegpt.io" target="_blank" rel="noopener" style="color:#7eb6ff;text-decoration:underline">token.comparegpt.io</a> — it takes a moment.';
   }
   $('#settings-extra').style.display = full ? 'block' : 'none';
   $('#login-portals').style.display = full ? 'none' : 'block';
-  $('#key-input').value=getKey();
+  $('#settings-save-btn').style.display = full ? 'inline-flex' : 'none';  // login is SSO-only — nothing to save
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
-  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; renderMemoryList(); renderArchivedList(); renderSharedLinks(); renderTasksList(); }
+  if(full){ $('#key-input').value=getKey(); $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; renderMemoryList(); renderArchivedList(); renderSharedLinks(); renderTasksList(); refreshBalance(); }
   applyTheme();
   $('#settings-overlay').classList.add('open');
-  refreshBalance();
-  $('#key-input').focus();
+  if(full) $('#key-input').blur(); else { const b=$('#login-portals button'); if(b) b.focus(); }
 }
 function closeSettings(){ $('#settings-overlay').classList.remove('open'); }
 // Build the "custom instructions" system message from the saved fields (or '' if none).
@@ -3340,7 +3338,7 @@ async function initGroupJoin(token){
 async function joinGroupFromUI(token){
   const name=($('#join-name').value||'').trim();
   if(!name){ $('#join-name').focus(); return; }
-  if(!getKey()){ showToast('Get a PWM token first — taking you to token.comparegpt.io'); gotoPortal(PWM_PORTAL_URL); return; }
+  if(!getKey()){ showToast('Sign in to continue'); openKeyModal(); return; }
   try{
     const r=await fetch('/api/group-join/'+token,{method:'POST',headers:gHeaders(),body:JSON.stringify({name})});
     if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.detail||'Could not join'); }
