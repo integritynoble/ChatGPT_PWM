@@ -2472,6 +2472,19 @@ function toggleDictate(){
 // ── Text-to-speech: neural voices via /api/tts (edge-tts on the server),
 // falling back to the browser's speechSynthesis when unavailable.
 let ttsAudio=null;
+// One persistent <audio> reused for all neural TTS. Browsers only let audio play
+// automatically if it was "unlocked" by a user gesture — but voice-mode replies
+// play seconds later, after the async recognition→chat→TTS round-trip, with no
+// fresh gesture. So we unlock this element ON the entry click and reuse it, which
+// keeps later programmatic plays allowed for the session.
+let _ttsEl=null;
+const _SILENT_WAV="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+function _ensureTtsEl(){ if(!_ttsEl){ _ttsEl=new Audio(); _ttsEl.preload='auto'; } return _ttsEl; }
+function unlockAudioPlayback(){
+  const el=_ensureTtsEl();
+  try{ el.src=_SILENT_WAV; const pr=el.play(); if(pr&&pr.then) pr.then(()=>{ try{el.pause(); el.currentTime=0;}catch(e){} }).catch(()=>{}); }catch(e){}
+  try{ if(window.speechSynthesis){ window.speechSynthesis.getVoices(); const u=new SpeechSynthesisUtterance(' '); u.volume=0; window.speechSynthesis.speak(u); window.speechSynthesis.cancel(); } }catch(e){}
+}
 function ttsVoice(){ return localStorage.getItem('cg_tts_voice')||'en-US-JennyNeural'; }
 function ttsBusy(){ return (ttsAudio && !ttsAudio.paused) || !!(window.speechSynthesis && window.speechSynthesis.speaking); }
 function stopTts(){
@@ -2489,10 +2502,12 @@ async function ttsPlay(text, onend){
     if(!resp.ok) return false;
     const blob=await resp.blob();
     if(!blob.size) return false;
-    const a=new Audio(URL.createObjectURL(blob));
+    const a=_ensureTtsEl();               // reuse the gesture-unlocked element
+    const url=URL.createObjectURL(blob);
     ttsAudio=a;
-    a.onended=()=>{ if(ttsAudio===a){ URL.revokeObjectURL(a.src); ttsAudio=null; } onend&&onend(); };
-    a.onerror =()=>{ if(ttsAudio===a) ttsAudio=null; onend&&onend(); };
+    a.onended=()=>{ URL.revokeObjectURL(url); if(ttsAudio===a) ttsAudio=null; onend&&onend(); };
+    a.onerror =()=>{ URL.revokeObjectURL(url); if(ttsAudio===a) ttsAudio=null; onend&&onend(); };
+    a.src=url; a.currentTime=0;
     await a.play();
     return true;
   }catch(e){ return false; }
@@ -2518,6 +2533,7 @@ function ttsPlain(text){
 // Read aloud (neural first, browser fallback)
 let speakBtn=null;
 function readAloud(text, btn){
+  unlockAudioPlayback();   // this click unlocks the shared audio element
   const wasThis = ttsBusy() && speakBtn===btn;
   stopTts();
   if(speakBtn){ speakBtn.classList.remove('ok'); speakBtn=null; }
@@ -2538,6 +2554,7 @@ function openVoiceMode(){
   if(!voiceSupported){ showToast('Voice mode needs a browser with speech recognition (Chrome or Edge)'); return; }
   if(!getKey()){ showToast('Sign in to continue'); openKeyModal(); return; }
   if(generating) return;
+  unlockAudioPlayback();   // this click is our one chance to unlock audio for later replies
   voiceActive=true; voiceMuted=false;
   $('#voice-overlay').classList.add('open');
   syncVoiceMuteUI();
