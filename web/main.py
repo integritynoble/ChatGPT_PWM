@@ -246,6 +246,120 @@ async def sync(req: Request, body: SyncRequest):
     }
 
 
+# ── Code interpreter (Docker-sandboxed Python execution) ─────────────────
+
+import asyncio
+import base64
+import glob
+import shutil
+import subprocess
+import tempfile
+import uuid
+
+from starlette.concurrency import run_in_threadpool
+
+CI_IMAGE = os.environ.get("CHATGPT_CI_IMAGE", "chatgpt-pwm-ci:latest")
+CI_TIMEOUT = int(os.environ.get("CHATGPT_CI_TIMEOUT", "30"))
+CI_ENABLED = os.environ.get("CHATGPT_CI_ENABLED", "1") == "1"
+CI_MAX_CODE = 100_000
+CI_MAX_OUTPUT = 40_000
+CI_MAX_IMAGES = 6
+CI_MAX_IMAGE_BYTES = 4_000_000
+_ci_sema = asyncio.Semaphore(int(os.environ.get("CHATGPT_CI_CONCURRENCY", "4")))
+
+
+class RunRequest(BaseModel):
+    code: str
+
+
+def _run_sandboxed(code: str) -> dict:
+    """Run Python in a locked-down, network-less Docker container. Blocking."""
+    workdir = tempfile.mkdtemp(prefix="ci_")
+    name = "ci_" + uuid.uuid4().hex[:12]
+    try:
+        os.chmod(workdir, 0o755)
+        outdir = os.path.join(workdir, "out")
+        os.makedirs(outdir, exist_ok=True)
+        os.chmod(outdir, 0o777)
+        script = os.path.join(workdir, "script.py")
+        with open(script, "w", encoding="utf-8") as f:
+            f.write(code)
+        os.chmod(script, 0o644)
+
+        cmd = [
+            "docker", "run", "--rm", "--name", name,
+            "--network", "none",
+            "--memory", "512m", "--memory-swap", "512m",
+            "--cpus", "1", "--pids-limit", "128",
+            "--user", "65534:65534",
+            "--read-only", "--tmpfs", "/tmp:size=64m,exec",
+            "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+            "-v", f"{workdir}:/work:rw", "-w", "/work",
+            CI_IMAGE, "python", "/work/script.py",
+        ]
+        timed_out = False
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=CI_TIMEOUT)
+            stdout, stderr, rc = proc.stdout, proc.stderr, proc.returncode
+        except subprocess.TimeoutExpired as e:
+            timed_out = True
+            subprocess.run(["docker", "kill", name], capture_output=True)
+            stdout = (e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")
+            stderr = (e.stderr or b"").decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
+            rc = -1
+
+        images = []
+        for p in sorted(glob.glob(os.path.join(outdir, "*"))):
+            if len(images) >= CI_MAX_IMAGES:
+                break
+            low = p.lower()
+            if not low.endswith((".png", ".jpg", ".jpeg", ".gif")):
+                continue
+            try:
+                with open(p, "rb") as im:
+                    raw = im.read()
+                if len(raw) <= CI_MAX_IMAGE_BYTES:
+                    mime = "image/png" if low.endswith(".png") else (
+                        "image/gif" if low.endswith(".gif") else "image/jpeg")
+                    images.append(f"data:{mime};base64," + base64.b64encode(raw).decode())
+            except Exception:  # noqa: BLE001
+                pass
+
+        return {
+            "stdout": stdout[:CI_MAX_OUTPUT],
+            "stderr": stderr[:CI_MAX_OUTPUT],
+            "images": images,
+            "timed_out": timed_out,
+            "exit_code": rc,
+        }
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+@app.post("/api/run")
+async def run_code(req: Request, body: RunRequest):
+    pwm_key = (
+        req.headers.get("X-PWM-Key")
+        or req.headers.get("Authorization", "").removeprefix("Bearer ")
+    ).strip() or None
+    if PWM_KEY_REQUIRED and not pwm_key:
+        raise HTTPException(status_code=401, detail="Missing PWM key. Set X-PWM-Key header.")
+    if pwm_key:
+        check = await pwm_billing.check_balance(pwm_key)
+        if not check.valid:
+            code = 402 if "balance" in check.reason.lower() else 401
+            raise HTTPException(status_code=code, detail=check.reason)
+
+    if not CI_ENABLED or shutil.which("docker") is None:
+        raise HTTPException(status_code=503, detail="Code execution is not available on this server.")
+    code = (body.code or "")[:CI_MAX_CODE]
+    if not code.strip():
+        raise HTTPException(status_code=400, detail="No code to run.")
+
+    async with _ci_sema:
+        return await run_in_threadpool(_run_sandboxed, code)
+
+
 # ── Hosted share links (public read-only chat snapshots) ─────────────────
 
 import secrets

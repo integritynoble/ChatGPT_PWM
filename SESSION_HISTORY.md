@@ -32,6 +32,55 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-03 — Code interpreter (Docker-sandboxed Python via /api/run)
+
+**Request:** "Please build code interpreter next" — the last big parity gap.
+
+**Sandbox** (the crux — this is a prod server): unprivileged `unshare` is blocked on
+this host, but the `spiritai` service user can use **Docker**. New image
+**`chatgpt-pwm-ci:latest`** (python:3.11-slim + numpy/pandas/matplotlib/scipy/sympy,
+`MPLBACKEND=Agg`; one `docker build` serves both backends — same host). Each run:
+`--rm --network none --memory 512m --memory-swap 512m --cpus 1 --pids-limit 128
+--user 65534:65534 --read-only --tmpfs /tmp:size=64m,exec --cap-drop ALL
+--security-opt no-new-privileges`, per-request tmp workdir bind-mounted at `/work`
+(script 644, `out/` 777 for plots), 30 s wall clock (`subprocess timeout` +
+`docker kill`). Verified: network blocked (URLError), tracebacks captured, timeout
+kills at 30 s, zero leftover containers.
+
+**Backend** (`web/main.py`): **`POST /api/run`** `{code}` → `{stdout, stderr, images[],
+timed_out, exit_code}` — PWM-key-gated like chat; images = data-URLs of files the code
+saves to `/work/out/*.png|jpg|gif` (≤6, ≤4 MB each); 100 KB code cap, 40 KB output
+caps; concurrency semaphore (4); `CHATGPT_CI_*` env knobs; 503 if docker/disabled.
+
+**Frontend** (`web/index.html`) — the ChatGPT auto-run loop:
+- **"Code interpreter"** row in the **+** menu (pill while armed; mutually exclusive
+  with the other tools). `c.ciOn` persists per conversation.
+- `systemContext()` teaches the model `[[run-python]] … [[/run-python]]` (one block
+  per reply, then STOP; sandbox contents/limits; save plots to `/work/out/`).
+- After a reply with a block: code renders as a normal ```python fence (markers never
+  visible, incl. mid-stream), a **tool message** is appended ("Analysis" block:
+  Running… spinner → stdout / red stderr / plot images / timeout note), the result is
+  fed back as a `[Python execution result]` message and the model **continues
+  automatically** — capped at `CI_MAX_STEPS=5` rounds; Stop button aborts the loop
+  (`ciStopped`). Roles go user/assistant/tool/assistant; tool messages render from
+  storage on reload.
+- **Sync bug found & fixed:** `applySync` adopted server convos wholesale, but sync
+  strips heavy fields — a round-trip deleted local CI plots (and inline gen images).
+  New `graftHeavyFields()` restores locally-held `run.images` / `variant.image` /
+  `att.url` onto incoming synced copies (guarded by code/ts/name equality).
+
+**Verified:** 19/19 headless (helpers, + menu, fence rendering, real sandboxed run
+with stdout "sum: 55" + matplotlib plot rendered, auto-continuation interprets
+result, roles, reload persistence incl. plot, zero console errors) — chat SSE stubbed,
+`/api/run` proxied to the real backend. All regressions green: sync 11, share 22,
+canvas 33, voice 20, GPTs 16, archive 14 (135 total). Live: `/api/run` 401-gated on
+both domains, UI markers served, `/health` 200.
+
+**Remaining gaps:** connectors (needs real OAuth per service — descoped by design),
+Sora video (no video model). Everything else on the parity list is done.
+
+---
+
 ## 2026-07-02 — Hosted share links (public read-only chats at /share/<id>)
 
 **Request:** "Please build hosted share links next."

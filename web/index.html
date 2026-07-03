@@ -293,6 +293,20 @@
   .canvas-card .cc-info{min-width:0}
   .canvas-card .cc-title{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .canvas-card .cc-sub{font-size:12px;color:var(--text-3)}
+  /* code interpreter output */
+  .msg.tool{padding:2px 0}
+  .ci-block{border:1px solid var(--border);border-radius:13px;overflow:hidden;margin:6px 0;background:var(--hover)}
+  .ci-head{display:flex;align-items:center;gap:7px;padding:8px 13px;font-size:12.5px;font-weight:600;
+        color:var(--text-2);border-bottom:1px solid var(--border)}
+  .ci-run{display:flex;align-items:center;gap:8px;padding:12px 14px;font-size:13.5px;color:var(--text-2)}
+  .ci-body{padding:4px 0}
+  .ci-out{margin:8px 13px;padding:10px 12px;background:var(--bg);border-radius:9px;font-family:var(--mono);
+        font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;max-height:320px;overflow-y:auto}
+  .ci-stderr{color:#f2555a}
+  .ci-err{margin:8px 13px;padding:9px 12px;background:rgba(229,72,77,.12);border-radius:9px;
+        color:#f2555a;font-size:13px}
+  .ci-none{margin:8px 13px;padding:4px 2px 10px;color:var(--text-3);font-size:13px}
+  .ci-img{display:block;max-width:min(100%,560px);border-radius:10px;margin:8px 13px 12px;background:#fff}
   @media (max-width:900px){
     #canvas-panel{position:fixed;inset:0;width:100%;min-width:0;z-index:80;border-left:none}
   }
@@ -715,6 +729,10 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             Canvas
           </button>
+          <button type="button" class="tool-pill" id="code-toggle" title="Code interpreter" onclick="toggleCodeInterp()" style="display:none">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            Code
+          </button>
         </div>
         <div id="disclaimer">ChatGPT can make mistakes. Check important info.</div>
       </div>
@@ -770,6 +788,11 @@
   <button class="menu-row plus-item" id="pm-search" data-search="web search find real-time news info internet browse" onclick="plusToggle('search')">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
     <span class="info"><span class="t">Web search</span><span class="d">Find real-time news and info</span></span>
+    <svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+  </button>
+  <button class="menu-row plus-item" id="pm-code" data-search="code interpreter run python data analysis plot chart calculate execute" onclick="plusToggle('code')">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+    <span class="info"><span class="t">Code interpreter</span><span class="d">Run Python, analyze data, make charts</span></span>
     <svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
   </button>
   <button class="menu-row plus-item" id="pm-canvas" data-search="canvas write code document collaborate draft essay edit" onclick="plusToggle('canvas')">
@@ -1013,6 +1036,7 @@ let pendingGptId = null;       // start the next new chat with this custom GPT
 function gptById(id){ return gpts.find(g=>g.id===id); }
 let generating = false;
 let abortCtl = null;
+let ciStopped = false;   // user pressed Stop mid code-interpreter loop
 let currentView = 'chat';
 let attachments = [];   // staged text-file attachments for the next message
 let tempMode = false;   // Temporary Chat: not saved to history
@@ -1239,6 +1263,7 @@ function persist(){
         let mm=m;
         if(m.atts) mm={...mm, atts:m.atts.map(a=> a.kind==='image' ? {name:a.name, kind:'image'} : a)};
         if(m.variants) mm={...mm, variants:m.variants.map(v=> v.image ? {...v, image:null} : v)};
+        if(m.run&&m.run.images&&m.run.images.length) mm={...mm, run:{...m.run, images:[]}};
         return mm;
       })}));
       localStorage.setItem('cg_convos', JSON.stringify(slim));
@@ -1437,12 +1462,14 @@ function syncToolUI(){
   $('#pm-deep')   && $('#pm-deep').classList.toggle('on', deepResearch);
   const ct=$('#canvas-toggle'); if(ct){ ct.style.display = canvasMode ? '' : 'none'; ct.classList.toggle('on', canvasMode); }
   $('#pm-canvas') && $('#pm-canvas').classList.toggle('on', canvasMode);
+  const cot=$('#code-toggle'); if(cot){ cot.style.display = codeInterp ? '' : 'none'; cot.classList.toggle('on', codeInterp); }
+  $('#pm-code') && $('#pm-code').classList.toggle('on', codeInterp);
 }
 function toggleWebSearch(){ webSearch=!webSearch; if(webSearch){imageGen=false;deepResearch=false;} syncToolUI(); input.focus(); }
 function toggleImageGen(){ imageGen=!imageGen; if(imageGen){webSearch=false;deepResearch=false;} syncToolUI(); input.focus(); }
 function toggleDeepResearch(){ deepResearch=!deepResearch; if(deepResearch){imageGen=false;webSearch=false;} syncToolUI(); input.focus(); }
 // + menu rows route to the same toggles (menu stays open so the checkmark is visible).
-function plusToggle(kind){ if(kind==='image') toggleImageGen(); else if(kind==='search') toggleWebSearch(); else if(kind==='deep') toggleDeepResearch(); else if(kind==='canvas') toggleCanvasMode(); }
+function plusToggle(kind){ if(kind==='image') toggleImageGen(); else if(kind==='search') toggleWebSearch(); else if(kind==='deep') toggleDeepResearch(); else if(kind==='canvas') toggleCanvasMode(); else if(kind==='code') toggleCodeInterp(); }
 // Bottom search box: filter the + menu items by label/keywords.
 function filterPlusMenu(q){
   q=(q||'').toLowerCase().trim(); let any=false;
@@ -1646,6 +1673,7 @@ function deleteGptFromUI(){
 // markers (see systemContext); the client streams them into the side panel and
 // shows a compact card in the chat instead.
 let canvasMode=false;          // + menu toggle: ask the model to use canvas markers
+let codeInterp=false;          // + menu toggle: code interpreter (run Python)
 let cvSaveTimer=null;
 
 const CANVAS_OPEN_RE=/\[\[canvas:?\s*([^\]]*)\]\]\r?\n?/i;
@@ -1735,7 +1763,8 @@ function cvQuick(prompt){
   if(generating) return;
   input.value=prompt; autosize(input); onSend();
 }
-function toggleCanvasMode(){ canvasMode=!canvasMode; syncToolUI(); input.focus(); }
+function toggleCanvasMode(){ canvasMode=!canvasMode; if(canvasMode) codeInterp=false; syncToolUI(); input.focus(); }
+function toggleCodeInterp(){ codeInterp=!codeInterp; if(codeInterp){canvasMode=false;imageGen=false;webSearch=false;deepResearch=false;} syncToolUI(); input.focus(); }
 // Commit a completed canvas block from a model reply into the conversation.
 function commitCanvas(c, cvData){
   if(!c.canvas) c.canvas={title:'',lang:'',versions:[],vi:0};
@@ -1764,6 +1793,63 @@ function canvasCardHtml(title, streaming){
     <div class="cc-sub">${streaming?'Writing…':'Click to open canvas'}</div></div></div>`;
 }
 
+// ── Code interpreter ────────────────────────────────────────────────────
+// The model wraps runnable Python in [[run-python]] … [[/run-python]]; the
+// client executes it in the server's Docker sandbox (/api/run), renders the
+// output (stdout/stderr + plot images) as a tool block, and feeds the result
+// back so the model can interpret it — the ChatGPT code-interpreter loop.
+const CI_MAX_STEPS=5;         // safety cap on run→continue iterations per user turn
+const RUN_RE=/\[\[run-python\]\]\r?\n?([\s\S]*?)\r?\n?\[\[\/run-python\]\]/i;
+const RUN_OPEN_RE=/\[\[run-python\]\]\r?\n?([\s\S]*)$/i;   // unterminated (mid-stream)
+function ciActive(c){ return codeInterp || !!(c && c.ciOn); }
+function extractRunPython(text){ const m=text.match(RUN_RE); return m ? m[1].trim() : null; }
+// Turn run-python markers into a python code fence for display (closed or streaming).
+function renderRunnable(text){
+  if(RUN_RE.test(text)) return text.replace(RUN_RE, (_,code)=>'\n```python\n'+code.trim()+'\n```\n');
+  const m=text.match(RUN_OPEN_RE);
+  if(m) return text.slice(0,m.index)+'\n```python\n'+m[1].replace(/\s+$/,'')+'\n```';
+  return text;
+}
+async function runCode(code){
+  try{
+    const resp=await fetch('/api/run',{method:'POST',
+      headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
+      body:JSON.stringify({code})});
+    if(!resp.ok){ const e=await resp.json().catch(()=>({})); return {stdout:'', stderr:'', images:[], error:(e.detail||('HTTP '+resp.status))}; }
+    return await resp.json();
+  }catch(e){ return {stdout:'', stderr:'', images:[], error:'Could not reach the code sandbox.'}; }
+}
+// After an assistant reply with a code block: run it, append a tool message with
+// the result, then continue the model turn so it can interpret the output.
+async function runAndContinue(c, code, model, depth){
+  const tool={role:'tool', running:true, run:{code}, ts:now()};
+  c.messages.push(tool); touchConvo(c); persist(); renderThread(); scrollBottom(true);
+  const result=await runCode(code);
+  if(ciStopped){ tool.running=false; tool.run={code, ...result}; persist(); renderThread(); setGenerating(false); abortCtl=null; return; }
+  tool.running=false; tool.run={code, ...result};
+  persist(); renderThread(); scrollBottom(true);
+  c.messages.push({role:'assistant', variants:[{content:'',ts:now()}], vi:0});
+  streamReply(model, null, depth+1);
+}
+// Render a tool (execution) message: output panel with stdout/stderr + images.
+function toolMessageHtml(m){
+  const r=m.run||{};
+  let body='';
+  if(m.running){
+    body='<div class="ci-run"><span class="spin"></span> Running Python…</div>';
+  } else {
+    const parts=[];
+    if(r.error) parts.push('<div class="ci-err">'+escapeHtml(r.error)+'</div>');
+    if(r.stdout) parts.push('<pre class="ci-out">'+escapeHtml(r.stdout)+'</pre>');
+    if(r.stderr) parts.push('<pre class="ci-out ci-stderr">'+escapeHtml(r.stderr)+'</pre>');
+    if(r.timed_out) parts.push('<div class="ci-err">Execution timed out.</div>');
+    (r.images||[]).forEach(src=>parts.push('<img class="ci-img" src="'+src+'">'));
+    if(!parts.length) parts.push('<div class="ci-none">No output.</div>');
+    body='<div class="ci-body">'+parts.join('')+'</div>';
+  }
+  return '<div class="ci-block"><div class="ci-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Analysis</div>'+body+'</div>';
+}
+
 // ── Render thread from model ────────────────────────────────────────────
 function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
@@ -1775,6 +1861,10 @@ function renderThread(){
 
 function renderMessage(m, idx){
   const msg=document.createElement('div'); msg.className='msg '+m.role;
+  if(m.role==='tool'){
+    msg.innerHTML='<div class="col">'+toolMessageHtml(m)+'</div>';
+    thread.appendChild(msg); return;
+  }
   if(m.role==='user'){
     const ucontent=msgText(m);
     const unver=(m.variants&&m.variants.length)||1;
@@ -1837,7 +1927,7 @@ function renderMessage(m, idx){
         </div>
       </div>`;
     const md=msg.querySelector('.markdown');
-    if(content){ md.innerHTML=renderMarkdown(content); enhance(md); }
+    if(content){ md.innerHTML=renderMarkdown(renderRunnable(content)); enhance(md); }
     msg.querySelector('.act-copy').onclick=(e)=>copyBtn(e.currentTarget, content);
     if(m.rating==='up') msg.querySelector('.act-good').classList.add('ok');
     if(m.rating==='down') msg.querySelector('.act-bad').classList.add('ok');
@@ -2217,7 +2307,7 @@ function continueShared(){
 
 async function onSend(e){
   if(e) e.preventDefault();
-  if(generating){ if(abortCtl) abortCtl.abort(); return; }
+  if(generating){ ciStopped=true; if(abortCtl) abortCtl.abort(); return; }
   const text=input.value.trim();
   if(!text && !attachments.length) return;
   // No PWM token yet → send them to the portal to get one first.
@@ -2225,6 +2315,8 @@ async function onSend(e){
   const atts=attachments.slice(); attachments=[]; renderAttachments();
   input.value=''; autosize(input);
   const c=ensureConvo();
+  if(codeInterp) c.ciOn=true;   // keep code interpreter armed for this conversation
+  ciStopped=false;
   const um={role:'user',content:text,ts:now()}; if(atts.length) um.atts=atts;
   c.messages.push(um);
   c.messages.push({role:'assistant',variants:[{content:'',ts:now()}],vi:0});
@@ -2234,7 +2326,8 @@ async function onSend(e){
   streamReply();
 }
 
-async function streamReply(model, hint){
+async function streamReply(model, hint, depth){
+  depth=depth||0;
   const c=activeConvo(); if(!c) return;
   model = model || currentModel;
   // contract: the LAST message is an assistant whose current variant is the empty target
@@ -2254,6 +2347,17 @@ async function streamReply(model, hint){
         return {role:'user', content:parts};
       }
       return {role:'user', content:textPart};
+    }
+    if(m.role==='tool'){
+      const r=m.run||{};
+      let s='[Python execution result]\n';
+      if(r.stdout) s+='stdout:\n'+r.stdout+'\n';
+      if(r.stderr) s+='stderr:\n'+r.stderr+'\n';
+      if(r.timed_out) s+='(the code timed out before finishing)\n';
+      if(r.error) s+='(sandbox error: '+r.error+')\n';
+      if(r.images&&r.images.length) s+='('+r.images.length+' plot image(s) were produced and shown to the user)\n';
+      if(!r.stdout&&!r.stderr&&!r.error&&!(r.images&&r.images.length)) s+='(no output)\n';
+      return {role:'user', content:s};
     }
     return {role:m.role, content:msgText(m)};
   });
@@ -2282,7 +2386,7 @@ async function streamReply(model, hint){
       streamCanvasLive(sp.canvas);
       md.innerHTML=renderMarkdown(sp.chat)+canvasCardHtml(sp.canvas.title, sp.open);
     } else {
-      md.innerHTML=renderMarkdown(forDisplay(full));
+      md.innerHTML=renderMarkdown(renderRunnable(forDisplay(full)));
     }
     md.classList.add('cursor'); scrollBottom(); raf=null;
   };
@@ -2326,6 +2430,7 @@ async function streamReply(model, hint){
   }finally{
     if(raf) cancelAnimationFrame(raf);
     md.classList.remove('cursor');
+    let continuing=false;
     if(full.trim() || genImage){
       full=captureMemories(full);   // save & strip any [[memory: …]] the model emitted
       const cvSp=splitCanvas(full);
@@ -2336,10 +2441,17 @@ async function streamReply(model, hint){
       if(genImage){ target.variants[target.vi].image=genImage; librarySave(genImage, lastUserText(c), c.id); }
       c.ts=now();
       persist(); renderChatList(); renderThread();
+      // Code interpreter: run any [[run-python]] block, then let the model continue.
+      const code = ciActive(c) ? extractRunPython(full) : null;
+      if(code && depth<CI_MAX_STEPS && !ciStopped){
+        continuing=true;
+        abortCtl=null;
+        runAndContinue(c, code, model, depth);
+      }
     } else {
       md.innerHTML='<span style="color:var(--text-3)">No response.</span>';
     }
-    setGenerating(false); abortCtl=null;
+    if(!continuing){ setGenerating(false); abortCtl=null; }
     scrollBottom();
   }
 }
@@ -2441,6 +2553,15 @@ function systemContext(c){
     }
     out.push(s);
   }
+  if(ciActive(c)){
+    out.push('Code interpreter mode: you can run Python. To execute code, put it between these exact markers:\n'
+      +'[[run-python]]\n<python code>\n[[/run-python]]\n'
+      +'Rules: at most ONE code block per reply — after it, STOP and wait; the execution result (stdout/stderr) '
+      +'will come back as the next message, then you interpret it for the user. The sandbox has numpy, pandas, '
+      +'matplotlib (Agg), scipy, and sympy; NO internet access; ~30s time limit. To show a chart, save it with '
+      +'plt.savefig("/work/out/plot.png") — saved images are displayed to the user automatically. '
+      +'Print anything you want to see. Use it for calculations, data analysis, and charts; answer directly when code is not needed.');
+  }
   return out;
 }
 function saveKey(){
@@ -2519,12 +2640,30 @@ function addTombstone(kind,id){
 }
 function touchConvo(c){ if(c) c.uts=now(); }
 
+// Sync ships convos with heavy image data stripped; when the merged copy comes
+// back, restore anything we still hold locally (plots, gen images, attachments).
+function graftHeavyFields(inc, loc){
+  if(!loc) return inc;
+  const lm=loc.messages||[], im=inc.messages||[];
+  for(let i=0;i<im.length && i<lm.length;i++){
+    const a=im[i], b=lm[i];
+    if(!a||!b) continue;
+    if(a.run&&b.run && !(a.run.images||[]).length && (b.run.images||[]).length && a.run.code===b.run.code)
+      a.run={...a.run, images:b.run.images};
+    if(a.variants&&b.variants) a.variants.forEach((v,j)=>{
+      const w=b.variants[j]; if(v&&w&&!v.image&&w.image&&v.ts===w.ts) v.image=w.image; });
+    if(a.atts&&b.atts) a.atts.forEach((t,j)=>{
+      const u=b.atts[j]; if(t&&u&&!t.url&&u.url&&t.name===u.name) t.url=u.url; });
+  }
+  return inc;
+}
 // Strip bulky payloads (data-URL images) before shipping a chat to the server.
 function stripConvoForSync(c){
   return {...c, messages:(c.messages||[]).map(m=>{
     let mm=m;
     if(m.atts) mm={...mm, atts:m.atts.map(a=> (a.url&&a.url.length>2000) ? {...a, url:null} : a)};
     if(m.variants) mm={...mm, variants:m.variants.map(v=> (v.image&&v.image.length>2000) ? {...v, image:null} : v)};
+    if(m.run&&m.run.images&&m.run.images.length) mm={...mm, run:{...m.run, images:[]}};
     return mm;
   })};
 }
@@ -2566,7 +2705,9 @@ function applySync(items){
   try{
     const parse=i=>{ try{ return JSON.parse(i.data); }catch(e){ return null; } };
     const live=k=>items.filter(i=>i.kind===k && !i.deleted).map(parse).filter(Boolean);
-    convos=live('convo').sort((a,b)=>(Math.max(b.ts||0,b.uts||0))-(Math.max(a.ts||0,a.uts||0)));
+    const localById={}; convos.forEach(c=>localById[c.id]=c);
+    convos=live('convo').map(c=>graftHeavyFields(c, localById[c.id]))
+      .sort((a,b)=>(Math.max(b.ts||0,b.uts||0))-(Math.max(a.ts||0,a.uts||0)));
     projects=live('project');
     gpts=live('gpt');
     const kv=id=>items.find(i=>i.kind==='kv' && i.id===id && !i.deleted);
