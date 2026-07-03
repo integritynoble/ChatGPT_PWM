@@ -187,6 +187,24 @@ def _sync_db() -> sqlite3.Connection:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_user ON tasks(user)")
     conn.execute("CREATE INDEX IF NOT EXISTS tasks_due ON tasks(status, next_run)")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS groups(
+            id TEXT PRIMARY KEY, title TEXT NOT NULL, owner TEXT NOT NULL,
+            invite TEXT NOT NULL UNIQUE, ai_busy_until INTEGER,
+            created INTEGER NOT NULL)"""
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS group_members(
+            group_id TEXT NOT NULL, user TEXT NOT NULL, name TEXT NOT NULL,
+            joined INTEGER NOT NULL, PRIMARY KEY(group_id, user))"""
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS group_msgs(
+            group_id TEXT NOT NULL, seq INTEGER NOT NULL, role TEXT NOT NULL,
+            author TEXT, author_user TEXT, content TEXT NOT NULL, ts INTEGER NOT NULL,
+            PRIMARY KEY(group_id, seq))"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS gm_user ON group_members(user)")
     return conn
 
 
@@ -672,6 +690,320 @@ async def _task_scheduler() -> None:
 @app.on_event("startup")
 async def _start_task_scheduler():
     asyncio.create_task(_task_scheduler())
+
+
+# ── Group chats ───────────────────────────────────────────────────────────
+# Unlike personal chats (client-side + sync), a group chat is one canonical
+# server-side conversation shared by up to 20 PWM users. Members join via an
+# invite link (/g/<token>) with a display name; clients poll for messages.
+# ChatGPT replies when mentioned (@chatgpt); generation is claimed atomically
+# so only one worker/backend answers, and is billed to the summoner's key.
+
+import re as _re
+import secrets
+
+GROUP_MAX_MEMBERS = 20
+GROUP_MSG_MAX = 8_000
+GROUP_FETCH_WINDOW = 200
+GROUP_AI_CONTEXT = 40
+_GROUP_SUMMON_RE = _re.compile(r"(^|\W)@?(chatgpt|gpt|ai)(\W|$)", _re.I)
+
+
+class GroupCreateRequest(BaseModel):
+    title: str
+    name: str          # creator's display name in the group
+
+
+class GroupJoinRequest(BaseModel):
+    name: str
+
+
+class GroupMessageRequest(BaseModel):
+    content: str
+
+
+def _group_auth(req: Request):
+    pwm_key = (
+        req.headers.get("X-PWM-Key")
+        or req.headers.get("Authorization", "").removeprefix("Bearer ")
+    ).strip() or None
+    if not pwm_key:
+        raise HTTPException(status_code=401, detail="Group chats require a PWM key.")
+    return hashlib.sha256(pwm_key.encode()).hexdigest(), pwm_key
+
+
+def _group_member(conn, gid: str, user: str) -> Optional[str]:
+    row = conn.execute(
+        "SELECT name FROM group_members WHERE group_id=? AND user=?", (gid, user)
+    ).fetchone()
+    return row[0] if row else None
+
+
+def _group_info(conn, gid: str, user: str) -> dict:
+    g = conn.execute(
+        "SELECT id,title,owner,invite,ai_busy_until,created FROM groups WHERE id=?", (gid,)
+    ).fetchone()
+    if not g:
+        raise HTTPException(status_code=404, detail="No such group.")
+    members = [r[0] for r in conn.execute(
+        "SELECT name FROM group_members WHERE group_id=? ORDER BY joined", (gid,)).fetchall()]
+    last = conn.execute(
+        "SELECT MAX(seq), MAX(ts) FROM group_msgs WHERE group_id=?", (gid,)).fetchone()
+    return {"id": g[0], "title": g[1], "invite": g[3], "members": members,
+            "me": _group_member(conn, gid, user),
+            "is_owner": g[2] == user, "last_seq": last[0] or 0, "last_ts": last[1] or g[5],
+            "typing": bool(g[4] and g[4] > int(_time.time() * 1000))}
+
+
+@app.post("/api/groups")
+async def group_create(req: Request, body: GroupCreateRequest):
+    user, pwm_key = _group_auth(req)
+    check = await pwm_billing.check_balance(pwm_key)
+    if not check.valid:
+        raise HTTPException(status_code=401, detail=check.reason)
+    title = (body.title or "").strip()[:60] or "Group chat"
+    name = (body.name or "").strip()[:40] or "Member"
+    gid = _uuid.uuid4().hex[:12]
+    now_ms = int(_time.time() * 1000)
+    conn = _sync_db()
+    try:
+        conn.execute("INSERT INTO groups(id,title,owner,invite,created) VALUES(?,?,?,?,?)",
+                     (gid, title, user, secrets.token_urlsafe(12), now_ms))
+        conn.execute("INSERT INTO group_members(group_id,user,name,joined) VALUES(?,?,?,?)",
+                     (gid, user, name, now_ms))
+        conn.commit()
+        info = _group_info(conn, gid, user)
+    finally:
+        conn.close()
+    return info
+
+
+@app.get("/api/groups")
+async def group_list(req: Request):
+    user, _ = _group_auth(req)
+    conn = _sync_db()
+    try:
+        gids = [r[0] for r in conn.execute(
+            "SELECT group_id FROM group_members WHERE user=?", (user,)).fetchall()]
+        out = [_group_info(conn, g, user) for g in gids]
+    finally:
+        conn.close()
+    out.sort(key=lambda g: -(g["last_ts"] or 0))
+    for g in out:
+        g.pop("invite", None)   # invite links only via the detail endpoint
+    return {"groups": out}
+
+
+@app.get("/api/group/{gid}")
+async def group_detail(req: Request, gid: str):
+    user, _ = _group_auth(req)
+    conn = _sync_db()
+    try:
+        if not _group_member(conn, gid, user):
+            raise HTTPException(status_code=403, detail="Not a member of this group.")
+        return _group_info(conn, gid, user)
+    finally:
+        conn.close()
+
+
+@app.get("/api/group-invite/{token}")
+async def group_invite_info(token: str):
+    """Public: what a visitor sees before joining."""
+    conn = _sync_db()
+    try:
+        g = conn.execute("SELECT id,title FROM groups WHERE invite=?", (token,)).fetchone()
+        if not g:
+            raise HTTPException(status_code=404, detail="This invite link is invalid.")
+        members = [r[0] for r in conn.execute(
+            "SELECT name FROM group_members WHERE group_id=? ORDER BY joined", (g[0],)).fetchall()]
+    finally:
+        conn.close()
+    return {"title": g[1], "members": members}
+
+
+@app.post("/api/group-join/{token}")
+async def group_join(req: Request, token: str, body: GroupJoinRequest):
+    user, pwm_key = _group_auth(req)
+    check = await pwm_billing.check_balance(pwm_key)
+    if not check.valid:
+        raise HTTPException(status_code=401, detail=check.reason)
+    name = (body.name or "").strip()[:40] or "Member"
+    now_ms = int(_time.time() * 1000)
+    conn = _sync_db()
+    try:
+        g = conn.execute("SELECT id FROM groups WHERE invite=?", (token,)).fetchone()
+        if not g:
+            raise HTTPException(status_code=404, detail="This invite link is invalid.")
+        gid = g[0]
+        if _group_member(conn, gid, user):
+            return _group_info(conn, gid, user)   # already in — idempotent
+        count = conn.execute(
+            "SELECT COUNT(*) FROM group_members WHERE group_id=?", (gid,)).fetchone()[0]
+        if count >= GROUP_MAX_MEMBERS:
+            raise HTTPException(status_code=409, detail=f"This group is full ({GROUP_MAX_MEMBERS} members).")
+        conn.execute("INSERT INTO group_members(group_id,user,name,joined) VALUES(?,?,?,?)",
+                     (gid, user, name, now_ms))
+        seq = (conn.execute("SELECT MAX(seq) FROM group_msgs WHERE group_id=?", (gid,)).fetchone()[0] or 0) + 1
+        conn.execute(
+            "INSERT INTO group_msgs(group_id,seq,role,author,author_user,content,ts) VALUES(?,?,?,?,?,?,?)",
+            (gid, seq, "system", None, None, f"{name} joined the group", now_ms))
+        conn.commit()
+        return _group_info(conn, gid, user)
+    finally:
+        conn.close()
+
+
+@app.post("/api/group/{gid}/leave")
+async def group_leave(req: Request, gid: str):
+    user, _ = _group_auth(req)
+    now_ms = int(_time.time() * 1000)
+    conn = _sync_db()
+    try:
+        name = _group_member(conn, gid, user)
+        if not name:
+            raise HTTPException(status_code=403, detail="Not a member of this group.")
+        conn.execute("DELETE FROM group_members WHERE group_id=? AND user=?", (gid, user))
+        remaining = conn.execute(
+            "SELECT COUNT(*) FROM group_members WHERE group_id=?", (gid,)).fetchone()[0]
+        if remaining == 0:
+            conn.execute("DELETE FROM groups WHERE id=?", (gid,))
+            conn.execute("DELETE FROM group_msgs WHERE group_id=?", (gid,))
+        else:
+            seq = (conn.execute("SELECT MAX(seq) FROM group_msgs WHERE group_id=?", (gid,)).fetchone()[0] or 0) + 1
+            conn.execute(
+                "INSERT INTO group_msgs(group_id,seq,role,author,author_user,content,ts) VALUES(?,?,?,?,?,?,?)",
+                (gid, seq, "system", None, None, f"{name} left the group", now_ms))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"left": gid}
+
+
+@app.get("/api/group/{gid}/messages")
+async def group_messages(req: Request, gid: str, after: int = 0):
+    user, _ = _group_auth(req)
+    conn = _sync_db()
+    try:
+        if not _group_member(conn, gid, user):
+            raise HTTPException(status_code=403, detail="Not a member of this group.")
+        rows = conn.execute(
+            "SELECT seq,role,author,content,ts FROM group_msgs "
+            "WHERE group_id=? AND seq>? ORDER BY seq LIMIT ?",
+            (gid, after, GROUP_FETCH_WINDOW)).fetchall()
+        info = _group_info(conn, gid, user)
+    finally:
+        conn.close()
+    return {"messages": [{"seq": r[0], "role": r[1], "author": r[2], "content": r[3], "ts": r[4]}
+                         for r in rows],
+            "typing": info["typing"], "members": info["members"], "title": info["title"]}
+
+
+async def _group_ai_reply(gid: str, pwm_key: str) -> None:
+    """Generate ChatGPT's reply to a group; the caller already claimed the lock."""
+    try:
+        conn = _sync_db()
+        try:
+            g = conn.execute("SELECT title FROM groups WHERE id=?", (gid,)).fetchone()
+            members = [r[0] for r in conn.execute(
+                "SELECT name FROM group_members WHERE group_id=? ORDER BY joined", (gid,)).fetchall()]
+            rows = conn.execute(
+                "SELECT role,author,content FROM group_msgs WHERE group_id=? "
+                "ORDER BY seq DESC LIMIT ?", (gid, GROUP_AI_CONTEXT)).fetchall()
+        finally:
+            conn.close()
+        rows.reverse()
+        msgs = [{"role": "system", "content":
+                 f"You are ChatGPT participating in a group chat titled {g[0]!r} with members: "
+                 + ", ".join(members) +
+                 ". Each user message is prefixed with the sender's name. Reply naturally to the "
+                 "conversation, addressing people by name when helpful. Keep replies concise and "
+                 "conversational — this is a group discussion, not an essay."}]
+        for (role, author, content) in rows:
+            if role == "assistant":
+                msgs.append({"role": "assistant", "content": content})
+            elif role == "user":
+                msgs.append({"role": "user", "content": f"{author or 'Someone'}: {content}"})
+        full = ""
+        ptoks = ctoks = 0
+        async for chunk in subscription.stream_chat(msgs, subscription.DEFAULT_MODEL, False, False):
+            for line in chunk.decode(errors="replace").splitlines():
+                if not line.startswith("data:"):
+                    continue
+                d = line[5:].strip()
+                if not d or d == "[DONE]":
+                    continue
+                try:
+                    obj = json.loads(d)
+                except Exception:  # noqa: BLE001
+                    continue
+                delta = (obj.get("choices") or [{}])[0].get("delta", {}).get("content", "")
+                if delta:
+                    full += delta
+                usage = obj.get("usage")
+                if usage:
+                    ptoks = usage.get("prompt_tokens", 0)
+                    ctoks = usage.get("completion_tokens", 0)
+        full = full.strip()[:GROUP_MSG_MAX] or "(no response)"
+        now_ms = int(_time.time() * 1000)
+        conn = _sync_db()
+        try:
+            seq = (conn.execute("SELECT MAX(seq) FROM group_msgs WHERE group_id=?", (gid,)).fetchone()[0] or 0) + 1
+            conn.execute(
+                "INSERT INTO group_msgs(group_id,seq,role,author,author_user,content,ts) VALUES(?,?,?,?,?,?,?)",
+                (gid, seq, "assistant", "ChatGPT", None, full, now_ms))
+            conn.execute("UPDATE groups SET ai_busy_until=NULL WHERE id=?", (gid,))
+            conn.commit()
+        finally:
+            conn.close()
+        if pwm_key and (ptoks or ctoks):
+            await pwm_billing.charge(pwm_key, subscription.DEFAULT_MODEL, ptoks, ctoks)
+    except Exception:  # noqa: BLE001
+        conn = _sync_db()
+        try:
+            conn.execute("UPDATE groups SET ai_busy_until=NULL WHERE id=?", (gid,))
+            conn.commit()
+        finally:
+            conn.close()
+
+
+@app.post("/api/group/{gid}/messages")
+async def group_send(req: Request, gid: str, body: GroupMessageRequest):
+    user, pwm_key = _group_auth(req)
+    content = (body.content or "").strip()[:GROUP_MSG_MAX]
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty message.")
+    now_ms = int(_time.time() * 1000)
+    conn = _sync_db()
+    try:
+        name = _group_member(conn, gid, user)
+        if not name:
+            raise HTTPException(status_code=403, detail="Not a member of this group.")
+        seq = (conn.execute("SELECT MAX(seq) FROM group_msgs WHERE group_id=?", (gid,)).fetchone()[0] or 0) + 1
+        conn.execute(
+            "INSERT INTO group_msgs(group_id,seq,role,author,author_user,content,ts) VALUES(?,?,?,?,?,?,?)",
+            (gid, seq, "user", name, user, content, now_ms))
+        summoned = bool(_GROUP_SUMMON_RE.search(content))
+        claimed = False
+        if summoned:
+            check = await pwm_billing.check_balance(pwm_key)
+            if check.valid:
+                cur = conn.execute(
+                    "UPDATE groups SET ai_busy_until=? WHERE id=? AND "
+                    "(ai_busy_until IS NULL OR ai_busy_until<?)",
+                    (now_ms + 120_000, gid, now_ms))
+                claimed = cur.rowcount == 1
+        conn.commit()
+    finally:
+        conn.close()
+    if claimed:
+        asyncio.create_task(_group_ai_reply(gid, pwm_key))
+    return {"seq": seq, "ai": claimed}
+
+
+@app.get("/g/{token}", response_class=HTMLResponse)
+async def group_invite_page(token: str):
+    # The SPA detects /g/<token> and shows the join screen.
+    return _INDEX_FILE.read_text(encoding="utf-8")
 
 
 # ── Connectors (server-side proxy: GitHub, Finances) ─────────────────────

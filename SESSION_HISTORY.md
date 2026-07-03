@@ -32,6 +32,52 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-03 — Group chats (server-side shared conversations, up to 20)
+
+**Request:** "Please build group chats next."
+
+**Architecture:** unlike personal chats (client-side + sync), a group is one
+**canonical server-side conversation** in the shared DB — the sync store made this the
+natural foundation. Members are PWM users (`sha256(key)`); the group holds an invite
+token, an ordered `group_msgs` log (monotonic `seq`), and an `ai_busy_until` claim
+lock. Everyone **polls** `GET …/messages?after=<seq>` (2.5 s) — no per-user fan-out,
+no websockets needed.
+
+**Backend** (`web/main.py`, 3 tables `groups`/`group_members`/`group_msgs`):
+`POST/GET /api/groups`, `GET /api/group/{id}`, public `GET /api/group-invite/{token}`
+(pre-join preview), `POST /api/group-join/{token}` (idempotent; 20-member cap → 409;
+posts a "X joined" system msg), `POST /api/group/{id}/leave` (last member out deletes
+the group + its messages), `GET/POST …/messages`, and SPA-served `/g/{token}`. **AI
+participation:** when a message matches `@?(chatgpt|gpt|ai)`, the sender's backend
+does an atomic `UPDATE groups SET ai_busy_until=… WHERE id=? AND (busy IS NULL OR
+busy<now)` — only the winner (across both backends/all workers) generates, streaming
+the last 40 messages (each user line prefixed with its author name) through the
+subscription and appending one `assistant` message, billed to the summoner's key;
+the lock clears on completion or error. All member-gated (403 for non-members).
+
+**Frontend** (`web/index.html`): **"New group chat"** sidebar item (name + display
+name prompts → creates → copies the invite link). A **Group chats** section pins above
+personal chats (unread dot when `last_seq > seen`). Group view: header with member
+list + Invite/Leave, own messages right-aligned bubbles, others' name-labelled,
+ChatGPT's replies as markdown, join/leave system lines, a "ChatGPT is typing…"
+indicator (from the server's busy flag), composer placeholder "mention @ChatGPT to
+bring the AI in". `onSend` routes to the group when one is open; the poll uses an
+**AbortController** so leaving cancels any in-flight request (fixed a post-leave 403
+console error). `/g/<token>` renders a join screen (title + members + name field).
+Groups refresh on init, tab focus, and a 60 s heartbeat; never touched by the personal
+sync/`persist` path.
+
+**Verified:** backend curl flow (create/invite/join/send/poll/summon→real "391"/403/
+list/leave) + **two-browser headless 18/18** — Alice creates, Bob joins via link, msgs
+flow both ways with author labels, `@ChatGPT` returns "42" to both, unread dot after
+navigating away, Bob leaves → Alice sees "left" system msg, zero console errors. All
+regressions green — **200 checks** across 11 suites (groups 18, tasks 22, connectors
+22, ci 19, sync 11, share 22, canvas 33, voice 20, gpts 16, archive 15, +no-sora; the
+static/proxy stubs all gained a `/api/groups` responder). Live on both domains:
+`/api/groups` 401-gated, `/g/<token>` 200, bad invite 404, UI markers served.
+
+---
+
 ## 2026-07-03 — Scheduled tasks + time-aware memory (+ invalid-key reminder)
 
 **Request:** "Please build scheduled tasks and time-aware memory next." Mid-session
