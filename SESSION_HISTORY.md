@@ -91,8 +91,13 @@ get 200 + real output at that exact point. (`token/backend/app/routers/auth.py`
 `app_login` + `siwe.py` verified in source; email/register path also works but a fresh
 email has no linked wallet → correctly bounces to `/login`, hence SIWE for the test.)
 
-**Test artifacts (harmless, on the prod portal):** one self-generated 0-balance wallet
-session and one throwaway `ssotest+…@example.com` user row — no PII, no balance, inert.
+**Test artifacts — PRUNED:** the throwaway `ssotest+1783092718@example.com` row was
+deleted from the portal DB (`token-backend-1` container, `/data/token.db`, matched by
+exact id) and the minted consumer key (`sk-pwm-rzB4T…`, id 141, label "chatgpt") was
+revoked on the exchange via `pwm_client.revoke_api_key_by_id`. Final sweep: 0 ssotest
+rows, 0 test-wallet rows/nonces, 0 exchange keys for the test wallet; the 16 real users
+(and 7 unrelated `@example.com` accounts that were NOT ours) left untouched. The SIWE
+wallet session created no persistent `portal_user` row (wallet identity = the JWT sub).
 
 ---
 
