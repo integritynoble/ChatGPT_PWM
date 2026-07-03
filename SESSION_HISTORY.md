@@ -32,6 +32,33 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-03 — Sora REMOVED (parity correction)
+
+**Request:** "I think there is no sora in ChatGPT… please check it. If there is no
+sora, please remove the sora in ChatGPT of PWM."
+
+**Checked and confirmed:** OpenAI discontinued Sora inside ChatGPT (announced
+March 2026; the Sora web/app experience inside ChatGPT ended April 26, 2026) —
+Sora 2 lives only at the separate **sora.com**. The real ChatGPT sidebar in July
+2026 is: New chat · Search chats · Library · GPTs · Projects — **no Sora**. So the
+Sora surface built earlier today (entry below) was parity-wrong and has been removed.
+
+**Removed:** sidebar nav item, `FEATURES.sora`, the `showView` route, the whole Sora
+JS module (`renderSora`/`soraGenerate`/`pollSora`/`videoSave|All|Delete`/job
+persistence), Sora CSS, the init resume line, and the entire backend
+`/api/video` section (both engines). `test_sora.py` retired. **Kept:** the
+`cg_library` IndexedDB at **v2 with the `videos` store** — IndexedDB versions can't
+be downgraded for browsers that already upgraded, so the (empty, invisible) store
+stays. The full implementation remains in git history at `4f00568` if ever wanted.
+
+**Verified:** JS/py syntax OK; headless — sidebar is exactly New chat/Search
+chats/Library/GPTs/Projects, all remaining views cycle, zero console errors. All
+regressions green (157 checks: gpts 16, archive 14, canvas 33, voice 20, sync 11,
+share 22, ci 19, connectors 22). Live on both domains: zero "sora" strings in the
+served UI, `/api/video` → 404, chat gate intact, both backends healthy.
+
+---
+
 ## 2026-07-03 — Sora video generation (/api/video, real videos from the Sora view)
 
 **Request:** "Please build Sora video generation next" — the final parity item.

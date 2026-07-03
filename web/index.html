@@ -164,7 +164,7 @@
   .hero-logo{display:block;margin:0 auto 14px;color:var(--text)}
   #model-btn .brand{flex-shrink:0}
 
-  /* feature view (Library / Sora / GPTs / Projects) */
+  /* feature view (Library / GPTs / Projects) */
   .feature{min-height:calc(100dvh - 120px);display:flex;flex-direction:column;align-items:center;
            justify-content:center;gap:8px;text-align:center;padding:0 20px}
   .feature .ficon{width:56px;height:56px;border-radius:16px;display:flex;align-items:center;
@@ -308,27 +308,6 @@
   .ci-none{margin:8px 13px;padding:4px 2px 10px;color:var(--text-3);font-size:13px}
   .ci-img{display:block;max-width:min(100%,560px);border-radius:10px;margin:8px 13px 12px;background:#fff}
   .conn-row{display:flex;gap:18px;margin:6px 0 2px}
-  /* Sora video generation */
-  .sora-wrap{max-width:var(--maxw);margin:0 auto;padding:20px 16px 60px}
-  .sora-composer{border:1px solid var(--border);border-radius:14px;background:var(--hover);padding:12px;margin-bottom:16px}
-  #sora-prompt{width:100%;background:transparent;border:none;outline:none;resize:vertical;color:var(--text);
-        font-size:14.5px;font-family:var(--font);line-height:1.5;min-height:44px}
-  .sora-opts{display:flex;gap:8px;align-items:center;margin-top:8px}
-  .sora-opts select{padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:9px;
-        color:var(--text);font-size:13px;outline:none}
-  .sora-opts .btn{margin-left:auto}
-  .sora-progress{display:flex;align-items:center;gap:12px;padding:14px;border:1px solid var(--border);
-        border-radius:13px;background:var(--hover);margin-bottom:16px;font-size:13.5px;color:var(--text-2)}
-  .sp-info{flex:1;min-width:0}
-  .sp-bar{height:5px;border-radius:99px;background:var(--bg);margin-top:8px;overflow:hidden}
-  .sp-fill{height:100%;border-radius:99px;background:var(--accent);transition:width .6s ease}
-  .sora-cell{border-radius:12px;overflow:hidden;background:var(--hover);margin:0;border:1px solid var(--border)}
-  .sora-cell video{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#000}
-  .sora-cell figcaption{padding:8px 10px 4px;font-size:12px;color:var(--text-3);white-space:nowrap;
-        overflow:hidden;text-overflow:ellipsis}
-  .sora-cell-bar{display:flex;gap:6px;padding:6px 10px 10px}
-  .sora-cell-bar a{text-decoration:none}
-  #sora-grid{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
   @media (max-width:900px){
     #canvas-panel{position:fixed;inset:0;width:100%;min-width:0;z-index:80;border-left:none}
   }
@@ -610,10 +589,6 @@
       <button class="nav-item" data-view="library" onclick="showView('library')">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
         Library
-      </button>
-      <button class="nav-item" data-view="sora" onclick="showView('sora')">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-        Sora
       </button>
       <button class="nav-item" data-view="gpts" onclick="showView('gpts')">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
@@ -1475,12 +1450,10 @@ function newChat(){
   if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');
 }
 
-// ── Feature views (Library / Sora / GPTs / Projects) ────────────────────
+// ── Feature views (Library / GPTs / Projects) ───────────────────────────
 const FEATURES={
   library:{t:'Library', d:'Images you create with ChatGPT will appear here.',
     icon:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>'},
-  sora:{t:'Sora', d:'Create and explore videos with Sora.',
-    icon:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>'},
   gpts:{t:'GPTs', d:'Discover and create custom versions of ChatGPT.',
     icon:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>'},
   projects:{t:'Projects', d:'Group related chats and files together in a project.',
@@ -1549,7 +1522,6 @@ function showView(v){
   const f=FEATURES[v];
   if(v==='library'){ renderLibrary(); }
   else if(v==='projects'){ renderProjects(); }   // sidebar Projects always opens the list
-  else if(v==='sora'){ renderSora(); }
   else if(v==='gpts'){ renderGpts(); }
   else { thread.innerHTML=`<div class="feature"><div class="ficon">${f.icon}</div><h2>${f.t}</h2><p>${f.d}</p></div>`; }
   renderChatList(); updateGptContext();
@@ -1569,98 +1541,6 @@ function libDB(){
 }
 function lastUserText(c){ for(let i=c.messages.length-1;i>=0;i--){ if(c.messages[i].role==='user') return msgText(c.messages[i]); } return ''; }
 
-// ── Sora (video generation via /api/video) ──────────────────────────────
-function videoSave(blob, prompt){ return libDB().then(db=>db.transaction('videos','readwrite').objectStore('videos')
-  .put({id:'vid_'+now()+'_'+Math.random().toString(36).slice(2,7), blob, prompt:(prompt||'').slice(0,220), ts:now()})).catch(()=>{}); }
-function videoAll(){ return libDB().then(db=>new Promise(res=>{ const rq=db.transaction('videos','readonly').objectStore('videos').getAll(); rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>res([]); })).catch(()=>[]); }
-function videoDelete(id){ return libDB().then(db=>db.transaction('videos','readwrite').objectStore('videos').delete(id)).catch(()=>{}); }
-
-let soraPoll=null;
-function soraJob(){ try{ return JSON.parse(localStorage.getItem('cg_video_job')||'null'); }catch(e){ return null; } }
-function setSoraJob(j){ j?localStorage.setItem('cg_video_job',JSON.stringify(j)):localStorage.removeItem('cg_video_job'); }
-
-function renderSora(){
-  $('#view-title').textContent='Sora';
-  thread.innerHTML=`<div class="sora-wrap">
-    <div class="proj-head"><h2>Sora</h2></div>
-    <p class="gpt-sub">Describe a scene and Sora will generate a short video.</p>
-    <div class="sora-composer">
-      <textarea id="sora-prompt" rows="2" placeholder="A red hot air balloon drifting over snowy mountains at sunrise…" spellcheck="false"></textarea>
-      <div class="sora-opts">
-        <select id="sora-aspect"><option value="16:9">16:9 landscape</option><option value="9:16">9:16 portrait</option><option value="1:1">1:1 square</option></select>
-        <select id="sora-frames"><option value="3">~7 seconds</option><option value="4">~10 seconds</option><option value="5">~12 seconds</option></select>
-        <button class="btn btn-primary" id="sora-go" onclick="soraGenerate()">Generate</button>
-      </div>
-    </div>
-    <div id="sora-job"></div>
-    <div class="lib-grid" id="sora-grid"></div></div>`;
-  const job=soraJob();
-  if(job){ renderSoraJob({status:'generating', progress:0, detail:'Resuming…'}); pollSora(); }
-  renderSoraGallery();
-}
-async function renderSoraGallery(){
-  const grid=$('#sora-grid'); if(!grid) return;
-  const vids=(await videoAll()).sort((a,b)=>b.ts-a.ts);
-  grid.innerHTML = vids.length ? '' : '<p class="proj-empty">No videos yet — generate one above.</p>';
-  vids.forEach(v=>{
-    const url=URL.createObjectURL(v.blob);
-    const cell=document.createElement('figure'); cell.className='sora-cell';
-    cell.innerHTML=`<video src="${url}" controls playsinline loop muted preload="metadata"></video>
-      <figcaption>${escapeHtml(v.prompt||'')}</figcaption>
-      <div class="sora-cell-bar"><a class="btn btn-sm btn-ghost" href="${url}" download="sora.mp4">Download</a>
-      <button class="btn btn-sm btn-danger">Delete</button></div>`;
-    cell.querySelector('.btn-danger').onclick=async()=>{ await videoDelete(v.id); renderSoraGallery(); };
-    grid.appendChild(cell);
-  });
-}
-function renderSoraJob(state){
-  const el=$('#sora-job'); if(!el) return;
-  if(!state){ el.innerHTML=''; return; }
-  if(state.status==='failed'){
-    el.innerHTML=`<div class="ci-err" style="margin:0 0 14px">Video generation failed: ${escapeHtml(state.error||'unknown error')}</div>`;
-  } else {
-    el.innerHTML=`<div class="sora-progress"><span class="spin"></span>
-      <div class="sp-info"><div>${escapeHtml(state.detail||state.status||'Working…')}</div>
-      <div class="sp-bar"><div class="sp-fill" style="width:${state.progress||0}%"></div></div></div></div>`;
-  }
-}
-async function soraGenerate(){
-  const p=($('#sora-prompt').value||'').trim(); if(!p){ $('#sora-prompt').focus(); return; }
-  if(!getKey()){ showToast('Get a PWM token first — taking you to token.comparegpt.io'); gotoPortal(PWM_PORTAL_URL); return; }
-  if(soraJob()){ showToast('A video is already generating'); return; }
-  $('#sora-go').disabled=true;
-  try{
-    const resp=await fetch('/api/video',{method:'POST',
-      headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
-      body:JSON.stringify({prompt:p, aspect:$('#sora-aspect').value, frames:+$('#sora-frames').value})});
-    if(!resp.ok){ const e=await resp.json().catch(()=>({})); throw new Error(e.detail||'Could not start the video'); }
-    const st=await resp.json();
-    setSoraJob({id:st.id, prompt:p});
-    renderSoraJob({status:'queued', progress:0, detail:'Starting…'});
-    pollSora();
-  }catch(e){ showToast(e.message||'Could not start the video'); }
-  finally{ const b=$('#sora-go'); if(b) b.disabled=false; }
-}
-function pollSora(){
-  clearTimeout(soraPoll);
-  const job=soraJob(); if(!job) return;
-  soraPoll=setTimeout(async()=>{
-    try{
-      const resp=await fetch('/api/video/'+job.id);
-      if(resp.status===404){ setSoraJob(null); renderSoraJob(null); return; }
-      const st=await resp.json();
-      renderSoraJob(st);
-      if(st.status==='completed'){
-        const f=await fetch('/api/video/'+job.id+'/file');
-        if(f.ok){ const blob=await f.blob(); await videoSave(blob, job.prompt); showToast('Video ready'); }
-        setSoraJob(null); renderSoraJob(null); renderSoraGallery();
-        return;
-      }
-      if(st.status==='failed'){ setSoraJob(null); return; }   // keep the error card visible
-      pollSora();
-    }catch(e){ pollSora(); }
-  }, 2500);
-}
 async function librarySave(url, caption, chatId){
   try{ const db=await libDB(); db.transaction('images','readwrite').objectStore('images')
         .put({id:'img_'+now()+'_'+Math.random().toString(36).slice(2,7), url, caption:(caption||'').slice(0,220), chatId, ts:now()});
@@ -2980,7 +2860,6 @@ document.addEventListener('keydown', e=>{
   if(!getKey()) openKeyModal();
   else if(justLoggedIn){ showToast('Logged in'); refreshAccountHead(); }
   if(getKey()) setTimeout(syncNow, 800);
-  if(soraJob()) pollSora();   // resume a video job that was running before reload
   input.focus();
 })();
 </script>
