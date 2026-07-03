@@ -13,7 +13,7 @@ Two ways to use it:
 - **Terminal CLI** — `chatgpt-pwm`, the same conversation in your shell ([jump](#terminal-cli)).
 
 <p align="center">
-  <img src="docs/screenshots/web-app.png" alt="chatgpt-pwm web app — the ChatGPT landing screen with sidebar and composer" width="860">
+  <img src="https://raw.githubusercontent.com/integritynoble/ChatGPT_PWM/main/docs/screenshots/web-app.png" alt="chatgpt-pwm web app — the ChatGPT landing screen with sidebar and composer" width="860">
 </p>
 
 ---
@@ -26,7 +26,7 @@ with token.comparegpt.io / physicsworldmodel.org / Google*; the portal mints you
 key and signs you in automatically (no key to paste).
 
 <p align="center">
-  <img src="docs/screenshots/login.png" alt="chatgpt-pwm login screen with Google / token.comparegpt.io / physicsworldmodel.org SSO" width="560">
+  <img src="https://raw.githubusercontent.com/integritynoble/ChatGPT_PWM/main/docs/screenshots/login.png" alt="chatgpt-pwm login screen with Google / token.comparegpt.io / physicsworldmodel.org SSO" width="560">
 </p>
 
 ### Chat & models
