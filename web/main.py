@@ -360,6 +360,138 @@ async def run_code(req: Request, body: RunRequest):
         return await run_in_threadpool(_run_sandboxed, code)
 
 
+# ── Connectors (server-side proxy: GitHub, Finances) ─────────────────────
+# Token-light by design: GitHub works unauthenticated for public data (a
+# user-supplied PAT unlocks code search / private repos and higher limits);
+# Finances uses Yahoo's public chart API. Tokens are passed per-request from
+# the client and never stored server-side.
+
+import httpx
+
+CONN_TIMEOUT = 15
+CONN_MAX_FILE = 50_000
+_YF_HEADERS = {"User-Agent": "Mozilla/5.0 (chatgpt-pwm connector)"}
+
+
+class ConnectorRequest(BaseModel):
+    service: str
+    action: str
+    params: dict = {}
+    token: Optional[str] = None
+
+
+def _gh_headers(token: Optional[str]) -> dict:
+    h = {"Accept": "application/vnd.github+json", "User-Agent": "chatgpt-pwm-connector"}
+    if token:
+        h["Authorization"] = f"Bearer {token}"
+    return h
+
+
+async def _connector_github(action: str, p: dict, token: Optional[str]) -> dict:
+    async with httpx.AsyncClient(timeout=CONN_TIMEOUT, headers=_gh_headers(token)) as cx:
+        if action == "search_repos":
+            r = await cx.get("https://api.github.com/search/repositories",
+                             params={"q": p.get("q", ""), "per_page": 5})
+            r.raise_for_status()
+            return {"repos": [{"repo": it["full_name"], "stars": it["stargazers_count"],
+                               "description": (it.get("description") or "")[:200],
+                               "url": it["html_url"]} for it in r.json().get("items", [])]}
+        if action == "repo_info":
+            r = await cx.get(f"https://api.github.com/repos/{p.get('repo','')}")
+            r.raise_for_status()
+            it = r.json()
+            return {"repo": it["full_name"], "description": it.get("description"),
+                    "stars": it["stargazers_count"], "forks": it["forks_count"],
+                    "open_issues": it["open_issues_count"], "language": it.get("language"),
+                    "default_branch": it.get("default_branch"), "url": it["html_url"]}
+        if action == "read_file":
+            r = await cx.get(f"https://api.github.com/repos/{p.get('repo','')}/contents/{p.get('path','')}",
+                             params=({"ref": p["ref"]} if p.get("ref") else None))
+            r.raise_for_status()
+            it = r.json()
+            if isinstance(it, list):
+                return {"directory": [e["name"] + ("/" if e["type"] == "dir" else "") for e in it][:100]}
+            content = base64.b64decode(it.get("content", "") or "").decode(errors="replace")
+            truncated = len(content) > CONN_MAX_FILE
+            return {"path": it.get("path"), "content": content[:CONN_MAX_FILE], "truncated": truncated}
+        if action == "list_issues":
+            r = await cx.get(f"https://api.github.com/repos/{p.get('repo','')}/issues",
+                             params={"state": p.get("state", "open"), "per_page": 10})
+            r.raise_for_status()
+            return {"issues": [{"number": it["number"], "title": it["title"], "state": it["state"],
+                                "user": it["user"]["login"], "is_pr": "pull_request" in it}
+                               for it in r.json()]}
+        if action == "search_code":
+            if not token:
+                return {"error": "GitHub code search requires a personal access token (add one in Settings → Connectors)."}
+            r = await cx.get("https://api.github.com/search/code",
+                             params={"q": p.get("q", ""), "per_page": 5})
+            r.raise_for_status()
+            return {"matches": [{"repo": it["repository"]["full_name"], "path": it["path"],
+                                 "url": it["html_url"]} for it in r.json().get("items", [])]}
+    return {"error": f"Unknown github action '{action}'."}
+
+
+async def _connector_finance(action: str, p: dict) -> dict:
+    symbol = (p.get("symbol") or "").upper().strip()
+    if not symbol:
+        return {"error": "Missing symbol."}
+    rng = {"quote": "5d", "history": p.get("range", "6mo")}.get(action, "5d")
+    async with httpx.AsyncClient(timeout=CONN_TIMEOUT, headers=_YF_HEADERS) as cx:
+        r = await cx.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+                         params={"range": rng, "interval": "1d" if action == "history" else "1d"})
+        r.raise_for_status()
+        res = r.json()["chart"]["result"][0]
+        meta = res["meta"]
+        if action == "quote":
+            return {"symbol": meta.get("symbol"), "price": meta.get("regularMarketPrice"),
+                    "currency": meta.get("currency"), "previous_close": meta.get("chartPreviousClose"),
+                    "exchange": meta.get("exchangeName"),
+                    "day_high": meta.get("regularMarketDayHigh"), "day_low": meta.get("regularMarketDayLow")}
+        ts = res.get("timestamp", [])
+        closes = res["indicators"]["quote"][0].get("close", [])
+        import datetime as _dt
+        hist = [{"date": _dt.datetime.utcfromtimestamp(t).strftime("%Y-%m-%d"), "close": round(c, 4)}
+                for t, c in zip(ts, closes) if c is not None][-120:]
+        return {"symbol": meta.get("symbol"), "currency": meta.get("currency"), "history": hist}
+    return {"error": f"Unknown finance action '{action}'."}
+
+
+@app.post("/api/connector")
+async def connector(req: Request, body: ConnectorRequest):
+    pwm_key = (
+        req.headers.get("X-PWM-Key")
+        or req.headers.get("Authorization", "").removeprefix("Bearer ")
+    ).strip() or None
+    if PWM_KEY_REQUIRED and not pwm_key:
+        raise HTTPException(status_code=401, detail="Missing PWM key. Set X-PWM-Key header.")
+    if pwm_key:
+        check = await pwm_billing.check_balance(pwm_key)
+        if not check.valid:
+            code = 402 if "balance" in check.reason.lower() else 401
+            raise HTTPException(status_code=code, detail=check.reason)
+
+    try:
+        if body.service == "github":
+            result = await _connector_github(body.action, body.params or {}, body.token)
+        elif body.service == "finance":
+            result = await _connector_finance(body.action, body.params or {})
+        else:
+            return {"ok": False, "error": f"Unknown service '{body.service}'."}
+    except httpx.HTTPStatusError as e:
+        detail = ""
+        try:
+            detail = e.response.json().get("message", "")
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": False, "error": f"{body.service} API error {e.response.status_code}: {detail or e.response.reason_phrase}"}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"Connector failed: {type(e).__name__}"}
+    if isinstance(result, dict) and result.get("error"):
+        return {"ok": False, "error": result["error"]}
+    return {"ok": True, "result": result}
+
+
 # ── Hosted share links (public read-only chat snapshots) ─────────────────
 
 import secrets

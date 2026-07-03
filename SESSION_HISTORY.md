@@ -32,6 +32,50 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-03 — Connectors (GitHub + Finances via /api/connector)
+
+**Request:** "Please build connectors next." Previously descoped over per-service
+OAuth; shipped the honest middle path: a server-side connector proxy for services
+that work **token-light** — GitHub (public data unauthenticated; optional user PAT
+unlocks code search / private repos) and Finances (Yahoo's public chart API — the
+old Stooq CSV endpoint is dead, checked). Tokens are passed per-request from the
+browser and never stored server-side (and explicitly never synced).
+
+**Backend** (`web/main.py`): **`POST /api/connector`** `{service, action, params,
+token?}` → `{ok, result | error}` — PWM-key-gated like chat; httpx, 15 s timeout;
+API errors surface as readable `{ok:false,error}` (never 5xx).
+- **github**: `search_repos{q}` (top 5), `repo_info{repo}`, `read_file{repo,path,ref?}`
+  (dirs list entries; files capped 50 KB), `list_issues{repo,state?}` (top 10, PR flag),
+  `search_code{q}` (requires token → friendly error otherwise).
+- **finance**: `quote{symbol}`, `history{symbol, range?}` (daily closes, ≤120 rows).
+
+**Frontend** (`web/index.html`) — same auto-run loop as code interpreter:
+- **+ menu rows "GitHub" and "Finances"** with checkmarks — global per-browser
+  toggles (`cg_conn_github/finance`), mirrored by checkboxes in **Settings →
+  Connectors** plus a GitHub-token field (`cg_github_token`, localStorage only —
+  verified absent from sync payloads).
+- `systemContext()` teaches enabled connectors only:
+  `[[connector]]{"service":…,"action":…,"params":…}[[/connector]]`, one call per
+  reply then STOP. After a reply with a call: markers hidden (incl. mid-stream), a
+  tool block renders ("Finances · quote" header, pretty-printed result JSON or red
+  error), the result feeds back as `[Connector result]` and the model continues —
+  same `CI_MAX_STEPS=5` cap and Stop handling; shares the tool-message role with CI
+  (`m.conn` vs `m.run` discriminates rendering + sendMsgs mapping).
+
+**Verified:** 22/22 headless (helpers, toggles, per-service system instructions,
+full loop against the REAL backend hitting live Yahoo — MSFT quote rendered +
+continuation, roles, convo persistence, settings hydration, token-not-synced,
+reload) and backend curl checks for every action incl. auth-required and
+unknown-service errors. All regressions green — **157 checks** across 8 suites
+(connectors 22, ci 19, sync 11, share 22, canvas 33, voice 20, GPTs 16, archive 14;
+one ci timing flake re-ran clean). Live on both domains: `/api/connector` 401-gated,
+UI markers served.
+
+**Parity list is now closed** except Sora video generation (no video model
+available — sidebar item stays a placeholder by design).
+
+---
+
 ## 2026-07-03 — Code interpreter (Docker-sandboxed Python via /api/run)
 
 **Request:** "Please build code interpreter next" — the last big parity gap.

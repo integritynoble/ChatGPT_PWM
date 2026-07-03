@@ -307,6 +307,7 @@
         color:#f2555a;font-size:13px}
   .ci-none{margin:8px 13px;padding:4px 2px 10px;color:var(--text-3);font-size:13px}
   .ci-img{display:block;max-width:min(100%,560px);border-radius:10px;margin:8px 13px 12px;background:#fff}
+  .conn-row{display:flex;gap:18px;margin:6px 0 2px}
   @media (max-width:900px){
     #canvas-panel{position:fixed;inset:0;width:100%;min-width:0;z-index:80;border-left:none}
   }
@@ -790,6 +791,16 @@
     <span class="info"><span class="t">Web search</span><span class="d">Find real-time news and info</span></span>
     <svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
   </button>
+  <button class="menu-row plus-item" id="pm-gh" data-search="github connector repository code issues search repos git" onclick="plusToggle('gh')">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55v-2.17c-3.2.7-3.87-1.36-3.87-1.36-.53-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.23-1.28-5.23-5.68 0-1.25.45-2.28 1.19-3.08-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.05 11.05 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.12 3.05.74.8 1.18 1.83 1.18 3.08 0 4.42-2.69 5.39-5.25 5.67.41.36.78 1.05.78 2.13v3.16c0 .3.2.67.8.55A10.52 10.52 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>
+    <span class="info"><span class="t">GitHub</span><span class="d">Search repos, read files &amp; issues</span></span>
+    <svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+  </button>
+  <button class="menu-row plus-item" id="pm-fin" data-search="finances connector stocks market quotes prices tickers shares" onclick="plusToggle('fin')">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+    <span class="info"><span class="t">Finances</span><span class="d">Live stock quotes and history</span></span>
+    <svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+  </button>
   <button class="menu-row plus-item" id="pm-code" data-search="code interpreter run python data analysis plot chart calculate execute" onclick="plusToggle('code')">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
     <span class="info"><span class="t">Code interpreter</span><span class="d">Run Python, analyze data, make charts</span></span>
@@ -867,6 +878,15 @@
         <button class="btn btn-sm btn-ghost" onclick="addMemoryFromUI()">Add</button>
       </div>
       <div style="text-align:right;margin-top:6px"><button class="btn btn-sm btn-ghost" onclick="clearMemoriesFromUI()">Clear all memories</button></div>
+
+      <label style="margin-top:16px">Connectors</label>
+      <div class="conn-row">
+        <label class="mem-toggle"><input type="checkbox" id="conn-github" onchange="setConn('github',this.checked)"> GitHub</label>
+        <label class="mem-toggle"><input type="checkbox" id="conn-finance" onchange="setConn('finance',this.checked)"> Finances</label>
+      </div>
+      <label for="gh-token" style="margin-top:8px">GitHub token (optional — unlocks code search &amp; private repos; stays in this browser)</label>
+      <input id="gh-token" type="password" placeholder="ghp_…" autocomplete="off" spellcheck="false"
+             onchange="this.value.trim()?localStorage.setItem('cg_github_token',this.value.trim()):localStorage.removeItem('cg_github_token')">
 
       <label style="margin-top:16px">Archived chats</label>
       <div id="archived-list" class="mem-list"></div>
@@ -1464,12 +1484,18 @@ function syncToolUI(){
   $('#pm-canvas') && $('#pm-canvas').classList.toggle('on', canvasMode);
   const cot=$('#code-toggle'); if(cot){ cot.style.display = codeInterp ? '' : 'none'; cot.classList.toggle('on', codeInterp); }
   $('#pm-code') && $('#pm-code').classList.toggle('on', codeInterp);
+  $('#pm-gh')  && $('#pm-gh').classList.toggle('on', connEnabled('github'));
+  $('#pm-fin') && $('#pm-fin').classList.toggle('on', connEnabled('finance'));
 }
 function toggleWebSearch(){ webSearch=!webSearch; if(webSearch){imageGen=false;deepResearch=false;} syncToolUI(); input.focus(); }
 function toggleImageGen(){ imageGen=!imageGen; if(imageGen){webSearch=false;deepResearch=false;} syncToolUI(); input.focus(); }
 function toggleDeepResearch(){ deepResearch=!deepResearch; if(deepResearch){imageGen=false;webSearch=false;} syncToolUI(); input.focus(); }
 // + menu rows route to the same toggles (menu stays open so the checkmark is visible).
-function plusToggle(kind){ if(kind==='image') toggleImageGen(); else if(kind==='search') toggleWebSearch(); else if(kind==='deep') toggleDeepResearch(); else if(kind==='canvas') toggleCanvasMode(); else if(kind==='code') toggleCodeInterp(); }
+function plusToggle(kind){ if(kind==='image') toggleImageGen(); else if(kind==='search') toggleWebSearch(); else if(kind==='deep') toggleDeepResearch(); else if(kind==='canvas') toggleCanvasMode(); else if(kind==='code') toggleCodeInterp(); else if(kind==='gh') toggleConnector('github'); else if(kind==='fin') toggleConnector('finance'); }
+// Connectors are global on/off switches (persisted per browser, never synced).
+function connEnabled(s){ return localStorage.getItem('cg_conn_'+s)==='1'; }
+function setConn(s,on){ localStorage.setItem('cg_conn_'+s, on?'1':'0'); syncToolUI(); }
+function toggleConnector(s){ setConn(s, !connEnabled(s)); input.focus(); }
 // Bottom search box: filter the + menu items by label/keywords.
 function filterPlusMenu(q){
   q=(q||'').toLowerCase().trim(); let any=false;
@@ -1831,8 +1857,53 @@ async function runAndContinue(c, code, model, depth){
   c.messages.push({role:'assistant', variants:[{content:'',ts:now()}], vi:0});
   streamReply(model, null, depth+1);
 }
+// ── Connectors (GitHub / Finances via /api/connector) ───────────────────
+const CONN_RE=/\[\[connector\]\]\r?\n?([\s\S]*?)\r?\n?\[\[\/connector\]\]/i;
+const CONN_OPEN_RE=/\[\[connector\]\][\s\S]*$/i;
+function extractConnector(text){
+  const m=text.match(CONN_RE); if(!m) return null;
+  try{ const o=JSON.parse(m[1].trim()); return (o&&o.service&&o.action)?o:null; }catch(e){ return null; }
+}
+// Connector calls never render as text — the tool block below shows the call.
+function hideConnCall(text){ return text.replace(CONN_RE,'').replace(CONN_OPEN_RE,'').trim(); }
+const CONN_LABELS={github:'GitHub', finance:'Finances'};
+async function runConnectorAndContinue(c, call, model, depth){
+  const tool={role:'tool', running:true, conn:{service:call.service, action:call.action, params:call.params||{}}, ts:now()};
+  c.messages.push(tool); touchConvo(c); persist(); renderThread(); scrollBottom(true);
+  let resp;
+  try{
+    const body={service:call.service, action:call.action, params:call.params||{}};
+    const ghTok=localStorage.getItem('cg_github_token');
+    if(call.service==='github' && ghTok) body.token=ghTok;
+    const r=await fetch('/api/connector',{method:'POST',
+      headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
+      body:JSON.stringify(body)});
+    resp = r.ok ? await r.json()
+                : {ok:false, error:((await r.json().catch(()=>({}))).detail)||('HTTP '+r.status)};
+  }catch(e){ resp={ok:false, error:'Could not reach the connector service.'}; }
+  tool.running=false;
+  if(resp.ok) tool.conn.result=resp.result; else tool.conn.error=resp.error||'Connector failed.';
+  persist(); renderThread(); scrollBottom(true);
+  if(ciStopped){ setGenerating(false); abortCtl=null; return; }
+  c.messages.push({role:'assistant', variants:[{content:'',ts:now()}], vi:0});
+  streamReply(model, null, depth+1);
+}
+
 // Render a tool (execution) message: output panel with stdout/stderr + images.
 function toolMessageHtml(m){
+  if(m.conn){
+    const cn=m.conn;
+    const label=CONN_LABELS[cn.service]||cn.service;
+    let body;
+    if(m.running){
+      body='<div class="ci-run"><span class="spin"></span> Calling '+escapeHtml(label)+'…</div>';
+    } else if(cn.error){
+      body='<div class="ci-body"><div class="ci-err">'+escapeHtml(cn.error)+'</div></div>';
+    } else {
+      body='<div class="ci-body"><pre class="ci-out">'+escapeHtml(JSON.stringify(cn.result,null,2).slice(0,6000))+'</pre></div>';
+    }
+    return '<div class="ci-block"><div class="ci-head"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> '+escapeHtml(label)+' · '+escapeHtml(cn.action)+'</div>'+body+'</div>';
+  }
   const r=m.run||{};
   let body='';
   if(m.running){
@@ -1927,7 +1998,7 @@ function renderMessage(m, idx){
         </div>
       </div>`;
     const md=msg.querySelector('.markdown');
-    if(content){ md.innerHTML=renderMarkdown(renderRunnable(content)); enhance(md); }
+    if(content){ md.innerHTML=renderMarkdown(hideConnCall(renderRunnable(content))); enhance(md); }
     msg.querySelector('.act-copy').onclick=(e)=>copyBtn(e.currentTarget, content);
     if(m.rating==='up') msg.querySelector('.act-good').classList.add('ok');
     if(m.rating==='down') msg.querySelector('.act-bad').classList.add('ok');
@@ -2349,6 +2420,12 @@ async function streamReply(model, hint, depth){
       return {role:'user', content:textPart};
     }
     if(m.role==='tool'){
+      if(m.conn){
+        const cn=m.conn;
+        let s='[Connector result] '+cn.service+'.'+cn.action+'\n';
+        s+= cn.error ? ('error: '+cn.error) : JSON.stringify(cn.result);
+        return {role:'user', content:s.slice(0,20000)};
+      }
       const r=m.run||{};
       let s='[Python execution result]\n';
       if(r.stdout) s+='stdout:\n'+r.stdout+'\n';
@@ -2386,7 +2463,7 @@ async function streamReply(model, hint, depth){
       streamCanvasLive(sp.canvas);
       md.innerHTML=renderMarkdown(sp.chat)+canvasCardHtml(sp.canvas.title, sp.open);
     } else {
-      md.innerHTML=renderMarkdown(renderRunnable(forDisplay(full)));
+      md.innerHTML=renderMarkdown(hideConnCall(renderRunnable(forDisplay(full))));
     }
     md.classList.add('cursor'); scrollBottom(); raf=null;
   };
@@ -2443,10 +2520,15 @@ async function streamReply(model, hint, depth){
       persist(); renderChatList(); renderThread();
       // Code interpreter: run any [[run-python]] block, then let the model continue.
       const code = ciActive(c) ? extractRunPython(full) : null;
+      const connCall = extractConnector(full);
       if(code && depth<CI_MAX_STEPS && !ciStopped){
         continuing=true;
         abortCtl=null;
         runAndContinue(c, code, model, depth);
+      } else if(connCall && depth<CI_MAX_STEPS && !ciStopped){
+        continuing=true;
+        abortCtl=null;
+        runConnectorAndContinue(c, connCall, model, depth);
       }
     } else {
       md.innerHTML='<span style="color:var(--text-3)">No response.</span>';
@@ -2477,7 +2559,7 @@ function openSettingsModal(){
   $('#key-input').value=getKey();
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
-  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); renderMemoryList(); renderArchivedList(); renderSharedLinks(); }
+  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; renderMemoryList(); renderArchivedList(); renderSharedLinks(); }
   applyTheme();
   $('#settings-overlay').classList.add('open');
   refreshBalance();
@@ -2552,6 +2634,15 @@ function systemContext(c){
          '\n\nWhen the user asks for changes to it, reply with the full updated artifact inside the canvas markers (keep the same title unless asked to change it).';
     }
     out.push(s);
+  }
+  const connList=[];
+  if(connEnabled('github')) connList.push('- github: search_repos{q}, repo_info{repo}, read_file{repo:"owner/name", path, ref?} (a directory path lists its entries), list_issues{repo, state?}, search_code{q} (needs the user\'s GitHub token)');
+  if(connEnabled('finance')) connList.push('- finance: quote{symbol}, history{symbol, range?: "1mo"|"6mo"|"1y"|"5y"}');
+  if(connList.length){
+    out.push('Connectors: you can fetch live data from connected services. To call one, emit EXACTLY:\n'
+      +'[[connector]]\n{"service":"<service>","action":"<action>","params":{...}}\n[[/connector]]\n'
+      +'One call per reply — after it, STOP and wait; the result arrives as the next message, then you answer the user with it. '
+      +'Available services and actions:\n'+connList.join('\n'));
   }
   if(ciActive(c)){
     out.push('Code interpreter mode: you can run Python. To execute code, put it between these exact markers:\n'
