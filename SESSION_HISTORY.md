@@ -70,10 +70,19 @@ share inserted once was served **identically by both public domains**, then 404 
 both after deletion — proving the shared-DB foundation for sync/groups/tasks/shares/
 files across devices and domains. Git clean, `HEAD == origin/main`.
 
-**Not done (by choice):** no real PWM balance spent / no prod key minted, so the live
-public domains' *generation* was proven via the byte-identical deployed code rather
-than by charging an account. A true through-the-front-door live generation needs a
-valid `sk-pwm-` key.
+**Login (clarification):** users do NOT paste an `sk-pwm-` key — they click **Continue
+with token.comparegpt.io / physicsworldmodel.org / Google** and sign in with their PWM
+account; the portal's `/api/auth/app-login` mints a consumer `sk-pwm-` key server-side
+and redirects back with `#pwm_key=…`, which `captureKeyFromUrl()` stores automatically.
+The manual key field is only a fallback. **SSO flow confirmed live:** `GET
+token.comparegpt.io/api/auth/app-login?redirect_uri=https://chatgpt.comparegpt.io/`
+→ **302 `/login?next=…`** (portal reachable, 200; endpoint validates redirect_uri).
+
+**Not done (by choice):** the live public domains' *generation* was proven via the
+byte-identical deployed code rather than by driving a real account session, since
+completing an SSO login requires real portal/Google credentials (not to hand) and
+would spend real PWM balance. The end-to-end login mechanism itself is confirmed live
+up to the portal sign-in page.
 
 ---
 
