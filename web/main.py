@@ -205,6 +205,13 @@ def _sync_db() -> sqlite3.Connection:
             PRIMARY KEY(group_id, seq))"""
     )
     conn.execute("CREATE INDEX IF NOT EXISTS gm_user ON group_members(user)")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS files(
+            id TEXT PRIMARY KEY, user TEXT NOT NULL, name TEXT NOT NULL,
+            kind TEXT NOT NULL, content TEXT NOT NULL, size INTEGER NOT NULL,
+            ts INTEGER NOT NULL)"""
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS files_user ON files(user, ts)")
     return conn
 
 
@@ -690,6 +697,106 @@ async def _task_scheduler() -> None:
 @app.on_event("startup")
 async def _start_task_scheduler():
     asyncio.create_task(_task_scheduler())
+
+
+# ── Persistent file library ──────────────────────────────────────────────
+# Files uploaded once and reusable across any conversation, stored server-side
+# (in the shared DB) so they follow the user across devices. Text files hold
+# their extracted text; images hold a data URL. The client attaches a stored
+# file to a chat exactly like a fresh upload.
+
+FILES_MAX_COUNT = 100
+FILES_MAX_ONE = 8_000_000          # one file (data-URL images run large)
+FILES_MAX_TOTAL = 60_000_000       # per user
+
+
+class FileUploadRequest(BaseModel):
+    name: str
+    kind: str                      # "text" | "image"
+    content: str                   # extracted text, or a data: URL for images
+
+
+def _files_auth(req: Request):
+    pwm_key = (
+        req.headers.get("X-PWM-Key")
+        or req.headers.get("Authorization", "").removeprefix("Bearer ")
+    ).strip() or None
+    if not pwm_key:
+        raise HTTPException(status_code=401, detail="File library requires a PWM key.")
+    return hashlib.sha256(pwm_key.encode()).hexdigest()
+
+
+@app.post("/api/files")
+async def file_upload(req: Request, body: FileUploadRequest):
+    user = _files_auth(req)
+    name = (body.name or "file").strip()[:200]
+    kind = body.kind if body.kind in ("text", "image") else "text"
+    content = body.content or ""
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Empty file.")
+    size = len(content)
+    if size > FILES_MAX_ONE:
+        raise HTTPException(status_code=413, detail="File too large (max ~8 MB).")
+    conn = _sync_db()
+    try:
+        count, total = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(size),0) FROM files WHERE user=?", (user,)).fetchone()
+        if count >= FILES_MAX_COUNT:
+            raise HTTPException(status_code=409, detail=f"Library is full ({FILES_MAX_COUNT} files). Delete some first.")
+        if total + size > FILES_MAX_TOTAL:
+            raise HTTPException(status_code=413, detail="Library storage is full. Delete some files first.")
+        fid = _uuid.uuid4().hex[:16]
+        now_ms = int(_time.time() * 1000)
+        conn.execute(
+            "INSERT INTO files(id,user,name,kind,content,size,ts) VALUES(?,?,?,?,?,?,?)",
+            (fid, user, name, kind, content, size, now_ms))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"id": fid, "name": name, "kind": kind, "size": size, "ts": now_ms}
+
+
+@app.get("/api/files")
+async def file_list(req: Request):
+    user = _files_auth(req)
+    conn = _sync_db()
+    try:
+        rows = conn.execute(
+            "SELECT id,name,kind,size,ts FROM files WHERE user=? ORDER BY ts DESC", (user,)).fetchall()
+    finally:
+        conn.close()
+    return {"files": [{"id": r[0], "name": r[1], "kind": r[2], "size": r[3], "ts": r[4]} for r in rows]}
+
+
+@app.get("/api/files/{fid}")
+async def file_get(req: Request, fid: str):
+    user = _files_auth(req)
+    conn = _sync_db()
+    try:
+        row = conn.execute(
+            "SELECT name,kind,content FROM files WHERE id=? AND user=?", (fid, user)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="No such file.")
+    return {"id": fid, "name": row[0], "kind": row[1], "content": row[2]}
+
+
+@app.delete("/api/files/{fid}")
+async def file_delete(req: Request, fid: str):
+    user = _files_auth(req)
+    conn = _sync_db()
+    try:
+        row = conn.execute("SELECT user FROM files WHERE id=?", (fid,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="No such file.")
+        if row[0] != user:
+            raise HTTPException(status_code=403, detail="Not your file.")
+        conn.execute("DELETE FROM files WHERE id=?", (fid,))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"deleted": fid}
 
 
 # ── Group chats ───────────────────────────────────────────────────────────

@@ -32,6 +32,42 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-03 — Persistent file library (upload once, reuse in any chat)
+
+**Request:** "Please build the persistent file library next."
+
+**Server-side** (consistent with sync/groups/tasks/shares): a `files` table in the
+shared DB keyed by `sha256(key)` — text files store their extracted text, images a
+data URL. `POST /api/files {name,kind,content}` (100-file / 8 MB-per-file / 60 MB-per-
+user caps, 400 empty, 401 no key), `GET /api/files` (metadata only), `GET
+/api/files/{id}` (full content), `DELETE` (owner-checked 403). Cross-device by
+construction.
+
+**Frontend:** new **"Files"** sidebar item + view — Upload button / drop-zone, a list
+of stored files (type icon, size, date) with **Add to chat** and Delete. Uploads reuse
+the existing attachment extractor (`_extractPdf`/`_extractDocx`/`_readText`/
+`_readDataURL`) then POST. **"Add from library"** row in the composer **+** menu opens
+a picker overlay; choosing a file fetches its content and pushes it into `attachments[]`
+exactly like a fresh upload — so it flows through the normal `sendMsgs` path (text →
+`[File: name]\n…`, image → `image_url`). Attaching from any view switches to chat
+first; guarded against group chats.
+
+**Verified:** backend curl (upload text+image / list / fetch / 400 empty / 401 no key
+/ 403 foreign delete / delete). Headless **18/18** against the real backend — Files
+view, upload via input, **server-side persistence across reload**, Add-to-chat →
+composer chip carrying real content, + menu picker → attach, image round-trip (kind
+image → image chip), delete (verified via server state; the DOM-count assertion was
+flaky under the async re-render, so it now checks `/api/files`). All regressions green
+— **218 checks** across 12 suites (files 18, groups 18, tasks 22, connectors 22, ci
+19, sync 11, share 22, canvas 33, voice 20, gpts 16, archive 15, +no-sora). Live:
+`/api/files` 401-gated on both domains, UI markers served.
+
+**Parity note:** with the file library done, the earlier audit's remaining gap was
+40-file Projects; PWM Projects group chats (not file uploads), so that specific ChatGPT
+sub-feature (per-project uploaded files) is the only outstanding item.
+
+---
+
 ## 2026-07-03 — Group chats (server-side shared conversations, up to 20)
 
 **Request:** "Please build group chats next."

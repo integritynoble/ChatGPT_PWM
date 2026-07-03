@@ -308,6 +308,24 @@
   .ci-none{margin:8px 13px;padding:4px 2px 10px;color:var(--text-3);font-size:13px}
   .ci-img{display:block;max-width:min(100%,560px);border-radius:10px;margin:8px 13px 12px;background:#fff}
   .conn-row{display:flex;gap:18px;margin:6px 0 2px}
+  /* file library */
+  .files-wrap{max-width:var(--maxw);margin:0 auto;padding:20px 16px 60px}
+  .files-head{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+  .files-head h2{font-size:24px;font-weight:600;flex:1}
+  .file-list{display:flex;flex-direction:column;gap:4px}
+  .file-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:11px;background:var(--hover);transition:background .15s}
+  .file-row:hover{background:var(--hover-2)}
+  .file-row .fi{width:36px;height:36px;border-radius:9px;background:rgba(126,182,255,.14);color:#7eb6ff;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .file-row .fmeta{flex:1;min-width:0}
+  .file-row .fname{font-size:14px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .file-row .fsub{font-size:12px;color:var(--text-3)}
+  .file-row .fbtns{display:flex;gap:6px;flex-shrink:0}
+  .file-drop{border:1.5px dashed var(--border);border-radius:14px;padding:22px;text-align:center;color:var(--text-3);
+        font-size:14px;margin-bottom:18px;cursor:pointer;transition:border-color .15s,background .15s}
+  .file-drop:hover{border-color:#7eb6ff;background:var(--hover)}
+  #filepick .modal{max-width:520px}
+  #filepick .fp-list{max-height:52vh;overflow-y:auto;display:flex;flex-direction:column;gap:4px;margin-top:8px}
+  #filepick .file-row{cursor:pointer}
   /* group chats */
   .grp-head{display:flex;align-items:center;gap:10px;max-width:var(--maxw);margin:0 auto;
         padding:14px 20px 8px;width:100%}
@@ -610,6 +628,10 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
         Library
       </button>
+      <button class="nav-item" data-view="files" onclick="showView('files')">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Files
+      </button>
       <button class="nav-item" data-view="gpts" onclick="showView('gpts')">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
         GPTs
@@ -790,12 +812,17 @@
 <div class="pop" id="regen-menu"></div>
 
 <!-- composer "+" add menu -->
+<input type="file" id="lib-file-input" multiple style="display:none" onchange="onLibraryUpload(this)">
 <input type="file" id="file-input" multiple style="display:none" onchange="onFiles(this)"
   accept="image/png,image/jpeg,image/webp,image/gif,.png,.jpg,.jpeg,.webp,.gif,application/pdf,.pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.json,.js,.jsx,.ts,.tsx,.py,.java,.c,.cpp,.h,.hpp,.go,.rs,.rb,.php,.html,.css,.scss,.xml,.yml,.yaml,.toml,.ini,.cfg,.log,.sh,.bash,.sql,text/*">
 <div class="pop" id="plus-menu">
   <button class="menu-row plus-item" data-search="add photos files upload attach image document pdf" onclick="closeAllPops();document.getElementById('file-input').click()">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
     <span class="info"><span class="t">Add photos &amp; files</span></span>
+  </button>
+  <button class="menu-row plus-item" data-search="add from library saved files reuse documents attach stored" onclick="closeAllPops();openFilePicker()">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+    <span class="info"><span class="t">Add from library</span><span class="d">Reuse a file you uploaded before</span></span>
   </button>
   <button class="menu-row plus-item" id="pm-image" data-search="create image visualize anything picture generate art draw" onclick="plusToggle('image')">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
@@ -938,6 +965,16 @@
       <button class="btn btn-sm btn-danger" id="lightbox-del">Delete</button>
       <button class="btn btn-sm btn-ghost" onclick="closeLightbox()">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- file library picker -->
+<div class="overlay" id="filepick" onclick="if(event.target===this)closeFilePicker()">
+  <div class="modal">
+    <h2>Add from library</h2>
+    <p>Pick a file you uploaded before to attach it to this message.</p>
+    <div class="fp-list" id="fp-list"></div>
+    <div class="row"><button class="btn btn-ghost" onclick="closeFilePicker()">Close</button></div>
   </div>
 </div>
 
@@ -1494,6 +1531,8 @@ const FEATURES={
     icon:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>'},
   gpts:{t:'GPTs', d:'Discover and create custom versions of ChatGPT.',
     icon:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>'},
+  files:{t:'Files', d:'Upload files once and reuse them in any chat.',
+    icon:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'},
   projects:{t:'Projects', d:'Group related chats and files together in a project.',
     icon:'<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>'},
 };
@@ -1562,9 +1601,107 @@ function showView(v){
   if(v==='library'){ renderLibrary(); }
   else if(v==='projects'){ renderProjects(); }   // sidebar Projects always opens the list
   else if(v==='gpts'){ renderGpts(); }
+  else if(v==='files'){ renderFiles(); }
   else { thread.innerHTML=`<div class="feature"><div class="ficon">${f.icon}</div><h2>${f.t}</h2><p>${f.d}</p></div>`; }
   renderChatList(); updateGptContext();
 }
+
+// ── Persistent file library (server-side, reusable in any chat) ─────────
+function fileIcon(kind){
+  return kind==='image'
+    ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>'
+    : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+}
+function fmtSize(n){ return n>=1048576 ? (n/1048576).toFixed(1)+' MB' : n>=1024 ? Math.round(n/1024)+' KB' : n+' B'; }
+async function fetchFiles(){
+  if(!getKey()) return [];
+  try{ const r=await fetch('/api/files',{headers:{'X-PWM-Key':getKey()}}); if(!r.ok) return []; return (await r.json()).files||[]; }
+  catch(e){ return []; }
+}
+async function uploadToLibrary(f){
+  const lower=f.name.toLowerCase();
+  let kind='text', content='';
+  try{
+    if(f.type.startsWith('image/')){
+      if(f.size>6500000){ showToast(f.name+' is too large (max ~6 MB).'); return false; }
+      kind='image'; content=await _readDataURL(f);
+    } else if(f.type==='application/pdf' || lower.endsWith('.pdf')) content=await _extractPdf(f);
+    else if(lower.endsWith('.docx')) content=await _extractDocx(f);
+    else content=(await _readText(f)).slice(0,200000);
+  }catch(e){ showToast('Could not read '+f.name); return false; }
+  if(!content.trim()){ showToast(f.name+' had no readable content'); return false; }
+  try{
+    const r=await fetch('/api/files',{method:'POST',headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
+      body:JSON.stringify({name:f.name, kind, content})});
+    if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.detail||'Upload failed'); }
+    return true;
+  }catch(e){ showToast(e.message||'Upload failed'); return false; }
+}
+async function onLibraryUpload(inp){
+  const files=[...inp.files]; inp.value='';
+  if(!files.length) return;
+  showToast('Uploading '+files.length+' file'+(files.length>1?'s':'')+'…');
+  let ok=0;
+  for(const f of files){ if(await uploadToLibrary(f)) ok++; }
+  if(ok) showToast(ok+' file'+(ok>1?'s':'')+' added to your library');
+  if(currentView==='files') renderFiles();
+}
+async function renderFiles(){
+  $('#view-title').textContent='Files';
+  thread.innerHTML='<div class="files-wrap"><div class="files-head"><h2>Files</h2>'
+    +'<button class="btn btn-sm btn-primary" onclick="document.getElementById(\'lib-file-input\').click()">Upload files</button></div>'
+    +'<div class="file-drop" id="file-drop" onclick="document.getElementById(\'lib-file-input\').click()">Drop files here or click to upload — reuse them in any chat via the + menu.</div>'
+    +'<div class="file-list" id="file-list"><div class="proj-empty">Loading…</div></div></div>';
+  const list=$('#file-list');
+  if(!getKey()){ list.innerHTML='<div class="proj-empty">Log in to use the file library.</div>'; return; }
+  const files=await fetchFiles();
+  if(!files.length){ list.innerHTML='<div class="proj-empty">No files yet — upload one to reuse it across chats.</div>'; return; }
+  list.innerHTML='';
+  files.forEach(f=>{
+    const row=document.createElement('div'); row.className='file-row';
+    row.innerHTML='<div class="fi">'+fileIcon(f.kind)+'</div>'
+      +'<div class="fmeta"><div class="fname">'+escapeHtml(f.name)+'</div>'
+      +'<div class="fsub">'+fmtSize(f.size)+' · '+new Date(f.ts).toLocaleDateString()+'</div></div>'
+      +'<div class="fbtns"><button class="btn btn-sm btn-ghost">Add to chat</button>'
+      +'<button class="btn btn-sm btn-danger">Delete</button></div>';
+    row.querySelector('.btn-ghost').onclick=()=>attachLibraryFile(f.id);
+    row.querySelector('.btn-danger').onclick=async()=>{
+      if(!confirm('Delete '+f.name+' from your library?')) return;
+      try{ await fetch('/api/files/'+f.id,{method:'DELETE',headers:{'X-PWM-Key':getKey()}}); }catch(e){}
+      renderFiles();
+    };
+    list.appendChild(row);
+  });
+}
+async function attachLibraryFile(fid){
+  try{
+    const r=await fetch('/api/files/'+fid,{headers:{'X-PWM-Key':getKey()}});
+    if(!r.ok) throw new Error();
+    const f=await r.json();
+    if(currentView!=='chat' && !currentGroup) showView('chat');
+    if(currentGroup){ showToast('Files can be added to personal chats, not group chats'); return; }
+    if(f.kind==='image') attachments.push({name:f.name, kind:'image', url:f.content});
+    else attachments.push({name:f.name, kind:'text', content:f.content});
+    renderAttachments();
+    showToast('Added '+f.name+' to your message');
+    input.focus();
+  }catch(e){ showToast('Could not add that file'); }
+}
+async function openFilePicker(){
+  if(!getKey()){ openKeyModal(); return; }
+  $('#filepick').classList.add('open');
+  const box=$('#fp-list'); box.innerHTML='<div class="proj-empty">Loading…</div>';
+  const files=await fetchFiles();
+  if(!files.length){ box.innerHTML='<div class="proj-empty">No files yet. Upload some in the Files view.</div>'; return; }
+  box.innerHTML='';
+  files.forEach(f=>{
+    const row=document.createElement('div'); row.className='file-row';
+    row.innerHTML='<div class="fi">'+fileIcon(f.kind)+'</div><div class="fmeta"><div class="fname">'+escapeHtml(f.name)+'</div><div class="fsub">'+fmtSize(f.size)+'</div></div>';
+    row.onclick=()=>{ closeFilePicker(); attachLibraryFile(f.id); };
+    box.appendChild(row);
+  });
+}
+function closeFilePicker(){ $('#filepick').classList.remove('open'); }
 
 // ── Library (images made with "Create image") — stored in IndexedDB, since
 //    localStorage nulls generated images to stay under quota. ────────────────
