@@ -134,7 +134,7 @@
   .menu-row svg{flex-shrink:0;opacity:.85;margin-top:1px}
   .menu-row.danger{color:var(--danger)}
   /* plus (+) tools menu */
-  #plus-menu{width:300px;max-width:calc(100vw - 24px);padding:6px}
+  #plus-menu{width:300px;max-width:calc(100vw - 24px);padding:6px;overflow-y:auto}
   .plus-item .info{display:flex;flex-direction:column;min-width:0}
   .plus-item .info .t{font-size:14px;font-weight:500}
   .plus-item .info .d{font-size:12px;color:var(--text-3);margin-top:1px}
@@ -595,6 +595,10 @@
     #dock{padding:0 10px 12px}
     .markdown pre{border-radius:10px}
     .modal{padding:20px}
+    /* + menu as a bottom sheet — an upward popup taller than the screen clipped
+       its first rows (incl. "Add photos & files") above the viewport */
+    #plus-menu{position:fixed;left:8px!important;right:8px;top:auto!important;bottom:8px!important;
+               width:auto;max-width:none;max-height:min(70dvh,560px)}
   }
 </style>
 </head>
@@ -1238,9 +1242,17 @@ function togglePlusMenu(e){
   e.stopPropagation();
   const open=$('#plus-menu').classList.contains('open'); closeAllPops(); if(open) return;
   const m=$('#plus-menu'), r=e.currentTarget.getBoundingClientRect();
-  // clamp horizontally so the wider menu never runs off the right edge
-  const w=300, left=Math.min(r.left, window.innerWidth-w-12);
-  m.style.left=Math.max(8,left)+'px'; m.style.top='auto'; m.style.bottom=(window.innerHeight-r.top+8)+'px';
+  if(window.innerWidth<=768){
+    // mobile: CSS renders it as a bottom sheet — clear any inline positioning
+    m.style.left=''; m.style.top=''; m.style.bottom=''; m.style.maxHeight='';
+  } else {
+    // clamp horizontally so the wider menu never runs off the right edge
+    const w=300, left=Math.min(r.left, window.innerWidth-w-12);
+    m.style.left=Math.max(8,left)+'px'; m.style.top='auto'; m.style.bottom=(window.innerHeight-r.top+8)+'px';
+    // never taller than the space above the button (landing view centers the
+    // composer, so an unclamped menu ran off the top and hid its first rows)
+    m.style.maxHeight=Math.max(220, r.top-16)+'px';
+  }
   syncToolUI();                                   // reflect current tool state in checkmarks
   const si=$('#plus-search-input'); if(si){ si.value=''; filterPlusMenu(''); }
   m.classList.add('open');

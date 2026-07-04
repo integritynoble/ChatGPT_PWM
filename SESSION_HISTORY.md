@@ -32,6 +32,33 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-04 — Mobile: "+ → Add photos & files" was clipped off-screen (bottom sheet)
+
+**Request:** "Please pay attention to mobile version, which is not easy to find the
+uploading files."
+
+**Root cause (reproduced with a 390×844 phone viewport + screenshot):**
+`togglePlusMenu` anchors the popup's BOTTOM above the + button with unbounded
+height — on the landing view (composer vertically centered) the ~530 px menu
+overflowed the viewport top by ~110 px, clipping exactly its FIRST rows:
+**"Add photos & files"** and "Add from library". The same overflow existed on the
+desktop landing view (top −130 px).
+
+**Fix** (`web/index.html`): on mobile (≤768 px) the + menu now renders as a
+**bottom sheet** — fixed, full-width (8 px gutters), `max-height:min(70dvh,560px)`,
+internally scrollable; `togglePlusMenu` clears its inline positioning there. On
+desktop the popup keeps its above-the-button anchor but is height-clamped to the
+space above the button (`maxHeight = r.top−16`, min 220 px) with `overflow-y:auto`.
+
+**Verified (TDD):** new suite — mobile landing + mobile active-chat + desktop:
+menu fully inside the viewport, "Add photos & files" row visible, and tapping it
+opens the file picker; desktop still anchors above the + button. Red before
+(mobile top −109, desktop top −130, row invisible) → all green after. Screenshot
+confirms the sheet with "Add photos & files" as the first visible row. Voice
+suites (regress + barge-in) re-run green. Deployed to both live dirs.
+
+---
+
 ## 2026-07-04 — Voice barge-in: interrupt the AI by talking (or tapping the orb)
 
 **Request:** "Please support barge-in, interrupting the AI while it speaks."
