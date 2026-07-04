@@ -2861,7 +2861,10 @@ async function streamReply(model, hint, depth){
   });
   // System context (GPT persona + custom instructions + memory) — each is a system
   // message; the backend appends them to its default ChatGPT instructions.
-  systemContext(c).forEach(s=>sendMsgs.unshift({role:'system', content:s}));
+  // Voice turns take the fast lane: low-effort model, no web search / image gen /
+  // deep research, and a trimmed context — latency to the first spoken word rules.
+  const voiceTurn=voiceActive;
+  systemContext(c, voiceTurn).forEach(s=>sendMsgs.unshift({role:'system', content:s}));
   if(hint) sendMsgs.push({role:'user', content:hint});  // transient steering, not stored
 
   // render thread (shows empty target) then stream into the last assistant element
@@ -2893,7 +2896,11 @@ async function streamReply(model, hint, depth){
     const resp=await fetch('/api/chat',{
       method:'POST',
       headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
-      body:JSON.stringify({messages:sendMsgs, model:(deepResearch?'gpt-5.5-thinking':model), stream:true, web_search:(webSearch||deepResearch), image_gen:imageGen}),
+      body:JSON.stringify({messages:sendMsgs,
+        model:(voiceTurn?'gpt-5.5-instant':(deepResearch?'gpt-5.5-thinking':model)),
+        stream:true,
+        web_search:(!voiceTurn&&(webSearch||deepResearch)),
+        image_gen:(!voiceTurn&&imageGen)}),
       signal:abortCtl.signal
     });
     if(!resp.ok){
@@ -3066,11 +3073,14 @@ function captureMemories(text){
 }
 
 // Combined system context for a conversation: GPT persona + custom instructions + memory.
-function systemContext(c){
+function systemContext(c, lite){
   const out=[];
   if(c && c.gptId){ const g=gptById(c.gptId); if(g && (g.instructions||g.name)) out.push('You are "'+g.name+'", a custom GPT. '+(g.instructions||'')); }
   const ci=customInstructions(); if(ci) out.push(ci);
   const mem=memoryBlock(); if(mem) out.push(mem);
+  // lite (voice turns): persona + preferences + memory only — the tool
+  // instruction blocks below are unusable by voice and only slow the model.
+  if(lite) return out;
   if(canvasMode || (c&&c.canvas)){
     let s='Canvas mode: when the user asks you to write or revise a document, essay, article, or program, '+
       'put the ENTIRE artifact between these exact markers:\n'+

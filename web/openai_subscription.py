@@ -53,6 +53,8 @@ _MODEL_MAP = {
     "gpt-5.4-mini": "gpt-5.4-mini",
     # "Thinking" = GPT-5.5 with higher reasoning effort
     "gpt-5.5-thinking": "gpt-5.5",
+    # "Instant" = GPT-5.5 with low reasoning effort (voice mode's fast lane)
+    "gpt-5.5-instant": "gpt-5.5",
 }
 
 
@@ -252,6 +254,8 @@ def _build_payload(messages: List[dict], model: str, web_search: bool = False,
     reasoning = {"summary": "auto"}
     if str(model).endswith("-thinking"):
         reasoning["effort"] = "high"
+    elif str(model).endswith("-instant"):
+        reasoning["effort"] = "low"   # fastest first token; voice mode uses this
     return {
         "model": _MODEL_MAP.get(model, DEFAULT_MODEL),
         "instructions": instructions,

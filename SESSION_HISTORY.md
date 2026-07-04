@@ -32,6 +32,41 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-04 — Voice fast lane: replies start speaking much sooner
+
+**Request:** third voice follow-up — "the response is so slow" (latency from end of
+speech to first spoken word).
+
+**Root cause:** voice turns went through the full chat pipeline. Two compounding
+costs: (1) **model** — `voiceSend` used `currentModel`; with "ChatGPT Thinking"
+selected (persisted preference) every voice turn paid high reasoning effort —
+measured **3.45 s to the first content token for a trivial "say hi"** (5–15 s on
+real questions); an armed Deep-research pill silently upgraded voice turns to
+thinking + web_search too. (2) **prompt bloat** — `systemContext()` always shipped
+the scheduled-tasks block and any armed canvas/connector/code-interpreter blocks
+(~1.6 KB of tool instructions voice can't use).
+
+**Fix:**
+- **Backend** (`web/openai_subscription.py`, both live backends restarted): new
+  alias `gpt-5.5-instant` → gpt-5.5 with `reasoning.effort="low"` (verified
+  accepted by the real subscription: generates fine, ~1 s first token).
+- **Frontend** (`web/index.html`): `streamReply` marks `voiceTurn=voiceActive` —
+  voice turns force `gpt-5.5-instant`, ignore deep-research, and send
+  `web_search:false, image_gen:false`; `systemContext(c, lite)` gains a lite mode
+  (persona + custom instructions + memory only) used for voice turns — measured
+  system context 1634 → 399 chars in the worst-case setup. Typed turns unchanged.
+
+**Verified (TDD):** new fast-path test (worst case: thinking model + deep research
+armed + both connectors on): before — voice turn sent `gpt-5.5-thinking`,
+`web_search:true`, tool blocks in context → FAIL; after — `gpt-5.5-instant`, flags
+off, no tool blocks → PASS, and the typed-turn regression in the same run keeps
+the selected model + full tool context. Backend unit: instant→low / thinking→high
+/ plain→default effort. Real-stack generation through `gpt-5.5-instant` OK. All
+three earlier voice suites re-run green (blocked-playback, gaps, A–E). Deployed
+everywhere; both domains healthy, no backend errors.
+
+---
+
 ## 2026-07-04 — Voice mode: no more dead air between sentences (prefetch pipeline)
 
 **Request:** follow-up to the speaking fix — "the voice conversation is still not
