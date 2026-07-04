@@ -32,6 +32,36 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-04 — Voice barge-in: interrupt the AI by talking (or tapping the orb)
+
+**Request:** "Please support barge-in, interrupting the AI while it speaks."
+Brainstormed first (spec: `docs/superpowers/specs/2026-07-04-voice-barge-in-design.md`);
+user chose: interrupt during **speaking AND thinking**, triggered by **voice + tap**.
+
+**Built** (`web/index.html` only): while the AI thinks/speaks, a background
+`SpeechRecognition` (`voiceBargeRec`) guards the mic. Real speech (interim
+transcript ≥3 chars — filters echo/noise blips; Chrome AEC suppresses most
+self-pickup) triggers `voiceBargeNow()`: clears the sentence queue, `stopTts()`,
+aborts an in-flight generation via the existing `abortCtl` (partial reply persists,
+like Stop), flips the UI to Listening — and the SAME recognizer keeps collecting,
+so the interrupting words become the next message (sent on end-of-speech).
+Untriggered recognizers restart while the busy phase lasts (`voiceBusyPhase()`);
+`voiceListen` hands off cleanly (a triggered barge rec owns the turn). **Tapping
+the orb** does the same instantly (`voiceOrbTap`, cursor + title on the orb).
+`voiceBarged` keeps the old turn's tail from being spoken after `streamReply`
+returns. Mute/close abort the barge listener; muted = mic fully off, as before.
+Speaking status now reads "Speaking… (talk to interrupt)".
+
+**Verified (TDD):** new suite with a test-drivable SpeechRecognition mock — barge
+while speaking (playback stops, "actually tell me about dogs" becomes the next
+request, new reply spoken), barge while thinking (stream aborted, second request
+carries the new words), tap-to-interrupt (playback stops → Listening), echo guard
+(1-char noise: playback continues, no spurious turn). All red before, green after.
+All four earlier voice suites re-run green. Deployed to both live dirs; both
+domains serve the barge markers.
+
+---
+
 ## 2026-07-04 — Voice fast lane: replies start speaking much sooner
 
 **Request:** third voice follow-up — "the response is so slow" (latency from end of
