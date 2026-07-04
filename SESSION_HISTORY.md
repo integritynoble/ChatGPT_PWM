@@ -32,6 +32,50 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-04 — Voice mode REALLY speaks now (Web Audio playback; autoplay-proof)
+
+**Request:** "Focus on voice conversation — currently there is no speaking."
+
+**Root cause** (found by systematic debugging, all layers instrumented): the server
+was never the problem — edge-tts healthy, live `/api/tts` returning real audio 200s
+(including the user's own attempt at 13:56 UTC: chat 200 → tts 200, then silence and
+no second turn). The failure is the browser's **autoplay policy**: a voice reply plays
+15–30 s after the entry click (listen → chat → TTS round-trip), long past any
+transient user activation, so `<audio>.play()` is blocked (mobile Chrome/Safari).
+The `6c47edf` "unlock" fix never worked: its silent WAV had **zero audio samples** —
+`play()` on a 0-length file never actually starts (observed: promise pending >1 s →
+`AbortError`), so the element was never gesture-blessed. The `speechSynthesis`
+fallback is blocked by the same activation rules → total silence. **Why every prior
+test passed:** headless Chromium does not enforce autoplay policy AT ALL — proven
+with a negative control (no gesture, `--autoplay-policy=user-gesture-required`,
+playback still allowed; Playwright headless + new-headless + unmuted all permissive).
+All "voice verified 20/20" runs were blind to this bug class.
+
+**Fix** (`web/index.html`, TTS layer only — the WIP sentence-streaming voice loop
+from the prior session is kept and now committed): play neural TTS through the
+**Web Audio API**. `unlockAudioPlayback()` creates + `resume()`s a shared
+`AudioContext` on the entry gesture; once running it stays running, and
+`AudioBufferSourceNode`s scheduled on it later are **exempt from per-play autoplay
+checks** — the standard voice-app pattern. `ttsPlay()` now: fetch → `arrayBuffer` →
+`decodeAudioData` → buffer source (tracked in `ttsSource` for `stopTts`/`ttsBusy`);
+falls back to the old `<audio>` element (its silent unlock WAV now contains 0.05 s
+of REAL samples so it can actually play), then to `browserSpeak`. Unmute click also
+re-unlocks (fresh gesture, cheap insurance).
+
+**Verified (TDD):** new failing test simulates the real-browser condition — every
+`HTMLMediaElement.play()` rejects `NotAllowedError` (exactly what mobile throws) —
+deployed HEAD **fails** it (tts fetched, playback blocked, nothing spoken, loop
+silently returns to Listening — the user's exact symptom); fixed file **passes**
+(reply audibly spoken via Web Audio buffer sources, loop recovers). Regressions:
+normal voice loop speaks + persists both turns + returns to listening; **no-WebAudio
+fallback** still plays via the element; read-aloud starts/stops on click; closing
+voice mode mid-speech stops audio; zero console errors throughout. `node --check`
+OK. Deployed to both live dirs; both domains serve the new markers, `/health` 200.
+Caveat: real speaker output can't be heard from this server — mechanism verified at
+the audio-graph level; if it's still silent for a user, suspect their OS/tab volume.
+
+---
+
 ## 2026-07-03 — Account-only login (SSO); drop the visible API-key dependency
 
 **Request:** "Connect the ChatGPT account just based on a token.comparegpt.io or

@@ -2472,22 +2472,35 @@ function toggleDictate(){
 // ── Text-to-speech: neural voices via /api/tts (edge-tts on the server),
 // falling back to the browser's speechSynthesis when unavailable.
 let ttsAudio=null;
-// One persistent <audio> reused for all neural TTS. Browsers only let audio play
-// automatically if it was "unlocked" by a user gesture — but voice-mode replies
-// play seconds later, after the async recognition→chat→TTS round-trip, with no
-// fresh gesture. So we unlock this element ON the entry click and reuse it, which
-// keeps later programmatic plays allowed for the session.
+// Voice-mode replies play 15-30s after the entry click (recognition → chat →
+// TTS round-trip), long past any transient user activation — so a plain
+// <audio>.play() is blocked by the autoplay policy on mobile Chrome/Safari.
+// An AudioContext resumed ON the gesture stays running for the whole session,
+// and buffers scheduled on it later are exempt from per-play autoplay checks.
+// That is the primary playback path; the <audio> element and speechSynthesis
+// remain as fallbacks.
+let _audioCtx=null, ttsSource=null;
+function _ensureAudioCtx(){
+  const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return null;
+  if(!_audioCtx){ try{ _audioCtx=new AC(); }catch(e){ return null; } }
+  return _audioCtx;
+}
 let _ttsEl=null;
-const _SILENT_WAV="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+// 0.05s of true silence WITH real samples — a zero-length file never actually
+// starts playing, so it can't bless the element with the user gesture.
+const _SILENT_WAV="data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YSADAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
 function _ensureTtsEl(){ if(!_ttsEl){ _ttsEl=new Audio(); _ttsEl.preload='auto'; } return _ttsEl; }
 function unlockAudioPlayback(){
+  const ctx=_ensureAudioCtx();
+  if(ctx && ctx.state!=='running'){ try{ const pr=ctx.resume(); if(pr&&pr.catch) pr.catch(()=>{}); }catch(e){} }
   const el=_ensureTtsEl();
   try{ el.src=_SILENT_WAV; const pr=el.play(); if(pr&&pr.then) pr.then(()=>{ try{el.pause(); el.currentTime=0;}catch(e){} }).catch(()=>{}); }catch(e){}
   try{ if(window.speechSynthesis){ window.speechSynthesis.getVoices(); const u=new SpeechSynthesisUtterance(' '); u.volume=0; window.speechSynthesis.speak(u); window.speechSynthesis.cancel(); } }catch(e){}
 }
 function ttsVoice(){ return localStorage.getItem('cg_tts_voice')||'en-US-JennyNeural'; }
-function ttsBusy(){ return (ttsAudio && !ttsAudio.paused) || !!(window.speechSynthesis && window.speechSynthesis.speaking); }
+function ttsBusy(){ return !!ttsSource || (ttsAudio && !ttsAudio.paused) || !!(window.speechSynthesis && window.speechSynthesis.speaking); }
 function stopTts(){
+  if(ttsSource){ const s=ttsSource; ttsSource=null; try{s.onended=null; s.stop();}catch(e){} }
   if(ttsAudio){ const a=ttsAudio; ttsAudio=null; try{a.pause();}catch(e){} if(a.src&&a.src.startsWith('blob:')) URL.revokeObjectURL(a.src); }
   try{ window.speechSynthesis && window.speechSynthesis.cancel(); }catch(e){}
 }
@@ -2500,10 +2513,27 @@ async function ttsPlay(text, onend){
       headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
       body:JSON.stringify({text:(text||'').slice(0,6000), voice:ttsVoice()})});
     if(!resp.ok) return false;
-    const blob=await resp.blob();
-    if(!blob.size) return false;
-    const a=_ensureTtsEl();               // reuse the gesture-unlocked element
-    const url=URL.createObjectURL(blob);
+    const buf=await resp.arrayBuffer();
+    if(!buf.byteLength) return false;
+    // 1) Web Audio — immune to autoplay blocking once the ctx runs.
+    const ctx=_ensureAudioCtx();
+    if(ctx){
+      try{
+        if(ctx.state!=='running') await ctx.resume();
+        if(ctx.state==='running'){
+          const decoded=await ctx.decodeAudioData(buf.slice(0));
+          const src=ctx.createBufferSource();
+          src.buffer=decoded; src.connect(ctx.destination);
+          ttsSource=src;
+          src.onended=()=>{ if(ttsSource===src) ttsSource=null; onend&&onend(); };
+          src.start();
+          return true;
+        }
+      }catch(e){ /* decode/resume failed — try the element below */ }
+    }
+    // 2) <audio> element (fine on desktop / while a gesture is fresh).
+    const a=_ensureTtsEl();
+    const url=URL.createObjectURL(new Blob([buf],{type:'audio/mpeg'}));
     ttsAudio=a;
     a.onended=()=>{ URL.revokeObjectURL(url); if(ttsAudio===a) ttsAudio=null; onend&&onend(); };
     a.onerror =()=>{ URL.revokeObjectURL(url); if(ttsAudio===a) ttsAudio=null; onend&&onend(); };
@@ -2548,6 +2578,9 @@ function readAloud(text, btn){
 // Client-side loop: listen (SpeechRecognition) → send through the normal
 // /api/chat stream → speak the reply (speechSynthesis) → listen again.
 let voiceActive=false, voiceMuted=false, voiceRec=null;
+let voiceStreamCb=null;   // streamReply feeds accumulating text here during voice mode
+let voiceQueue=[], voiceSpeaking=false, voiceStreamDone=false, voiceSpokenUpto=0;
+const VOICE_HINT='Reply in a brief, natural spoken style — a sentence or two, plain text only (no markdown, lists, or code).';
 const voiceSupported = micSupported && !!window.speechSynthesis;
 
 function openVoiceMode(){
@@ -2563,6 +2596,7 @@ function openVoiceMode(){
 function closeVoiceMode(){
   if(!voiceActive) return;
   voiceActive=false;
+  voiceStreamCb=null; voiceQueue=[]; voiceSpeaking=false;
   try{ voiceRec&&voiceRec.abort(); }catch(e){} voiceRec=null;
   stopTts();
   $('#voice-overlay').classList.remove('open');
@@ -2589,35 +2623,60 @@ function voiceListen(){
   };
   try{ r.start(); }catch(e){}
 }
+// Speak each finished sentence the moment it streams in, rather than waiting for
+// the whole reply — the first words come out in ~1–2s instead of after the full
+// generation. Sentences play in order via a small queue.
+function voiceEnqueue(chunk){
+  const s=ttsPlain(chunk).trim();
+  if(s){ voiceQueue.push(s); voiceDrainQueue(); }
+}
+function voiceDrainQueue(){
+  if(voiceSpeaking || !voiceActive || voiceMuted) return;
+  if(!voiceQueue.length){
+    if(voiceStreamDone) voiceListen();   // done speaking → back to listening
+    return;
+  }
+  voiceSpeaking=true; voiceStatus('speaking','Speaking…'); $('#vo-transcript').textContent='';
+  const next=voiceQueue.shift();
+  const done=()=>{ voiceSpeaking=false; voiceDrainQueue(); };
+  ttsPlay(next, done).then(ok=>{ if(!ok){ if(voiceActive && !voiceMuted) browserSpeak(next, done); else done(); } });
+}
+// Pull newly-completed sentences out of the growing reply text.
+function voiceOnStreamText(full){
+  const pending=full.slice(voiceSpokenUpto);
+  const re=/[\s\S]*?[.!?…]+["')\]]*(\s|$)/g;
+  let m, consumed=0;
+  while((m=re.exec(pending))){ voiceEnqueue(m[0]); consumed=re.lastIndex; }
+  voiceSpokenUpto+=consumed;
+}
 async function voiceSend(text){
-  voiceStatus('thinking','Thinking…');
+  voiceStatus('thinking','Thinking…'); $('#vo-transcript').textContent='';
   const c=ensureConvo();
   c.messages.push({role:'user',content:text,ts:now()});
   c.messages.push({role:'assistant',variants:[{content:'',ts:now()}],vi:0});
   c.ts=now();
   if(!c.title) c.title=text.replace(/\s+/g,' ').trim().slice(0,48);
   persist(); renderChatList();
-  await streamReply();
+  voiceQueue=[]; voiceSpeaking=false; voiceStreamDone=false; voiceSpokenUpto=0;
+  voiceStreamCb=voiceOnStreamText;
+  await streamReply(undefined, VOICE_HINT);   // keep spoken replies short
+  voiceStreamCb=null;
   if(!voiceActive) return;
-  const reply=msgText(c.messages[c.messages.length-1]).trim();
-  if(reply) voiceSpeak(reply);
-  else voiceListen();
-}
-function voiceSpeak(text){
-  const plain=ttsPlain(text);
-  if(!plain){ voiceListen(); return; }
-  voiceStatus('speaking','Speaking…'); $('#vo-transcript').textContent='';
-  const done=()=>{ if(!voiceActive) return; if(!voiceMuted) voiceListen(); else voiceStatus('idle','Muted'); };
-  ttsPlay(plain, done).then(ok=>{ if(!ok && voiceActive) browserSpeak(plain, done); });
+  const reply=msgText(c.messages[c.messages.length-1]);
+  const tail=reply.slice(voiceSpokenUpto);    // text after the last sentence boundary
+  if(tail.trim()) voiceEnqueue(tail);
+  voiceStreamDone=true;
+  voiceDrainQueue();   // if nothing is queued/speaking, resume listening
 }
 function voiceMuteToggle(){
   voiceMuted=!voiceMuted;
+  if(!voiceMuted) unlockAudioPlayback();   // unmute click = fresh unlock gesture
   syncVoiceMuteUI();
   if(voiceMuted){
     try{ voiceRec&&voiceRec.abort(); }catch(e){} voiceRec=null;
     if(!ttsBusy()) voiceStatus('idle','Muted');
-  } else if(!ttsBusy() && !generating){
-    voiceListen();
+  } else {
+    voiceDrainQueue();   // resume: speak queued sentences, or listen if none pending
   }
 }
 function syncVoiceMuteUI(){
@@ -2831,7 +2890,7 @@ async function streamReply(model, hint, depth){
           if(o.status==='generating_image' && !firstToken){ md.innerHTML='<div class="searching"><span class="spin"></span> Creating image…</div>'; }
           if(o.image){ genImage=o.image; let im=msgEl.querySelector('.gen-img'); if(!im){ if(md.querySelector('.thinking,.searching,.reasoning-live')) md.innerHTML=''; im=document.createElement('img'); im.className='gen-img'; const col=md.parentElement; col.insertBefore(im, col.querySelector('.actions')); } im.src=genImage; scrollBottom(); }
           const delta=(o.choices&&o.choices[0]&&o.choices[0].delta&&o.choices[0].delta.content)||'';
-          if(delta){ if(!firstToken){firstToken=true; md.innerHTML='';} full+=delta; if(!raf) raf=requestAnimationFrame(paint); }
+          if(delta){ if(!firstToken){firstToken=true; md.innerHTML='';} full+=delta; if(voiceStreamCb) voiceStreamCb(full); if(!raf) raf=requestAnimationFrame(paint); }
           if(o.error){ throw new Error(o.error.message||'stream error'); }
         }catch(_){}
       }
