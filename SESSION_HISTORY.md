@@ -32,6 +32,36 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-04 — Voice mode: no more dead air between sentences (prefetch pipeline)
+
+**Request:** follow-up to the speaking fix — "the voice conversation is still not
+good"; user confirmed the symptom: *speaks, but choppy/gappy*.
+
+**Root cause:** the sentence-streaming loop played clips strictly serially — the
+`/api/tts` fetch for sentence N+1 only STARTED after sentence N finished playing,
+so every sentence boundary carried a full network + edge-tts synthesis round-trip.
+Measured with an 800 ms-latency TTS stub: **~820 ms of dead air at every boundary**.
+
+**Fix** (`web/index.html`): split `ttsPlay` into `ttsFetchAudio(text)` +
+`ttsPlayBuffer(buf, onend)` (`ttsPlay` still composes both for read-aloud).
+`voiceEnqueue` now queues `{text, buf: ttsFetchAudio(text)}` — the audio downloads
+the moment the sentence is extracted from the stream, i.e. WHILE the previous clip
+is playing; `voiceDrainQueue` awaits the (usually already-resolved) buffer. Also
+smarter clip sizing in `voiceOnStreamText`: the first clip is a single sentence
+(fastest time-to-first-word), subsequent sentences coalesce to ~150 chars per clip
+(fewer prosody breaks, fewer TTS calls). Mute mid-reply keeps the current clip
+playing and pauses the queue; unmute resumes it (new `voiceFirstClipSent` state,
+reset per turn).
+
+**Verified (TDD):** new gap test (800 ms TTS stub, 3-sentence reply): before —
+gaps [820, 817] ms → FAIL; after — **[5] ms** → PASS (sentences 2+3 correctly
+coalesced into one clip). Regressions all green: blocked-playback test (autoplay
+sim), voice loop A–D (speak/persist/fallback/read-aloud/close), and new scenario E
+(mute pauses queue → unmute resumes → back to listening). `node --check` OK.
+Deployed to both live dirs; both domains serve the new markers.
+
+---
+
 ## 2026-07-04 — Voice mode REALLY speaks now (Web Audio playback; autoplay-proof)
 
 **Request:** "Focus on voice conversation — currently there is no speaking."

@@ -2504,17 +2504,24 @@ function stopTts(){
   if(ttsAudio){ const a=ttsAudio; ttsAudio=null; try{a.pause();}catch(e){} if(a.src&&a.src.startsWith('blob:')) URL.revokeObjectURL(a.src); }
   try{ window.speechSynthesis && window.speechSynthesis.cancel(); }catch(e){}
 }
-// Play text through the neural endpoint. Resolves true if playback started
-// (onend fires when it finishes); false → caller should fall back.
-async function ttsPlay(text, onend){
-  if(ttsVoice()==='browser') return false;
+// Fetch a piece of text's neural audio. Resolves ArrayBuffer, or null →
+// caller should fall back to browserSpeak. Separated from playback so the
+// voice loop can PREFETCH the next sentence while the current one plays.
+async function ttsFetchAudio(text){
+  if(ttsVoice()==='browser') return null;
   try{
     const resp=await fetch('/api/tts',{method:'POST',
       headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
       body:JSON.stringify({text:(text||'').slice(0,6000), voice:ttsVoice()})});
-    if(!resp.ok) return false;
+    if(!resp.ok) return null;
     const buf=await resp.arrayBuffer();
-    if(!buf.byteLength) return false;
+    return buf.byteLength ? buf : null;
+  }catch(e){ return null; }
+}
+// Play an already-fetched audio buffer. Resolves true if playback started
+// (onend fires when it finishes); false → caller should fall back.
+async function ttsPlayBuffer(buf, onend){
+  try{
     // 1) Web Audio — immune to autoplay blocking once the ctx runs.
     const ctx=_ensureAudioCtx();
     if(ctx){
@@ -2541,6 +2548,11 @@ async function ttsPlay(text, onend){
     await a.play();
     return true;
   }catch(e){ return false; }
+}
+async function ttsPlay(text, onend){
+  const buf=await ttsFetchAudio(text);
+  if(!buf) return false;
+  return ttsPlayBuffer(buf, onend);
 }
 // Speak with browser TTS (fallback path).
 function browserSpeak(plain, onend){
@@ -2579,7 +2591,7 @@ function readAloud(text, btn){
 // /api/chat stream → speak the reply (speechSynthesis) → listen again.
 let voiceActive=false, voiceMuted=false, voiceRec=null;
 let voiceStreamCb=null;   // streamReply feeds accumulating text here during voice mode
-let voiceQueue=[], voiceSpeaking=false, voiceStreamDone=false, voiceSpokenUpto=0;
+let voiceQueue=[], voiceSpeaking=false, voiceStreamDone=false, voiceSpokenUpto=0, voiceFirstClipSent=false;
 const VOICE_HINT='Reply in a brief, natural spoken style — a sentence or two, plain text only (no markdown, lists, or code).';
 const voiceSupported = micSupported && !!window.speechSynthesis;
 
@@ -2625,10 +2637,14 @@ function voiceListen(){
 }
 // Speak each finished sentence the moment it streams in, rather than waiting for
 // the whole reply — the first words come out in ~1–2s instead of after the full
-// generation. Sentences play in order via a small queue.
+// generation. Each clip PREFETCHES its audio the moment it's queued, so while
+// clip N plays, clip N+1 is already downloading — sentence boundaries carry no
+// TTS round-trip of dead air.
 function voiceEnqueue(chunk){
   const s=ttsPlain(chunk).trim();
-  if(s){ voiceQueue.push(s); voiceDrainQueue(); }
+  if(!s) return;
+  voiceQueue.push({text:s, buf:ttsFetchAudio(s)});
+  voiceDrainQueue();
 }
 function voiceDrainQueue(){
   if(voiceSpeaking || !voiceActive || voiceMuted) return;
@@ -2637,17 +2653,30 @@ function voiceDrainQueue(){
     return;
   }
   voiceSpeaking=true; voiceStatus('speaking','Speaking…'); $('#vo-transcript').textContent='';
-  const next=voiceQueue.shift();
+  const item=voiceQueue.shift();
   const done=()=>{ voiceSpeaking=false; voiceDrainQueue(); };
-  ttsPlay(next, done).then(ok=>{ if(!ok){ if(voiceActive && !voiceMuted) browserSpeak(next, done); else done(); } });
+  item.buf.then(buf=>{
+    if(!voiceActive){ voiceSpeaking=false; return; }
+    if(voiceMuted){ voiceQueue.unshift(item); voiceSpeaking=false; return; }  // keep for unmute
+    if(buf) ttsPlayBuffer(buf, done).then(ok=>{ if(!ok) browserSpeak(item.text, done); });
+    else browserSpeak(item.text, done);
+  });
 }
-// Pull newly-completed sentences out of the growing reply text.
+// Pull newly-completed sentences out of the growing reply text. The first clip
+// goes out as a single sentence (fastest time-to-first-word); after that,
+// sentences are coalesced to ~150 chars per clip for smoother prosody.
 function voiceOnStreamText(full){
   const pending=full.slice(voiceSpokenUpto);
   const re=/[\s\S]*?[.!?…]+["')\]]*(\s|$)/g;
-  let m, consumed=0;
-  while((m=re.exec(pending))){ voiceEnqueue(m[0]); consumed=re.lastIndex; }
-  voiceSpokenUpto+=consumed;
+  let m, batch='', consumed=0;
+  while((m=re.exec(pending))){
+    batch+=m[0];
+    if(!voiceFirstClipSent || batch.length>=150){
+      voiceEnqueue(batch); voiceFirstClipSent=true;
+      consumed=re.lastIndex; batch='';
+    }
+  }
+  voiceSpokenUpto+=consumed;   // an un-enqueued batch stays pending for next call
 }
 async function voiceSend(text){
   voiceStatus('thinking','Thinking…'); $('#vo-transcript').textContent='';
@@ -2657,7 +2686,7 @@ async function voiceSend(text){
   c.ts=now();
   if(!c.title) c.title=text.replace(/\s+/g,' ').trim().slice(0,48);
   persist(); renderChatList();
-  voiceQueue=[]; voiceSpeaking=false; voiceStreamDone=false; voiceSpokenUpto=0;
+  voiceQueue=[]; voiceSpeaking=false; voiceStreamDone=false; voiceSpokenUpto=0; voiceFirstClipSent=false;
   voiceStreamCb=voiceOnStreamText;
   await streamReply(undefined, VOICE_HINT);   // keep spoken replies short
   voiceStreamCb=null;
