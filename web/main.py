@@ -7,7 +7,9 @@ and, when the PWM exchange is deployed, billed against the user's PWM balance.
 """
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 from typing import Any, AsyncIterator, List, Optional, Union
 
@@ -18,6 +20,8 @@ from pydantic import BaseModel
 
 import openai_subscription as subscription
 import pwm_billing
+
+logger = logging.getLogger("chatgpt-pwm")
 
 # Require a PWM key to use the service (set PWM_KEY_REQUIRED=0 to open access).
 PWM_KEY_REQUIRED = os.environ.get("PWM_KEY_REQUIRED", "0") == "1"
@@ -81,23 +85,51 @@ async def _stream_with_billing(
     web_search: bool = False,
     image_gen: bool = False,
 ) -> AsyncIterator[bytes]:
-    """Stream from the subscription backend, then bill PWM tokens on completion."""
+    """Stream from the subscription backend, then bill PWM tokens on completion.
+
+    Diagnosability: failures here travel INSIDE a "200 OK" SSE stream and never
+    show in access logs — so log in-stream error events, streams that end with
+    no content (the UI's "No response." case), and mid-stream exceptions
+    (surfaced to the client as an SSE error event instead of a dead stream).
+    """
     prompt_tokens = completion_tokens = 0
-    async for chunk in subscription.stream_chat(messages, model, web_search, image_gen):
-        # Capture usage from the final chunk for billing.
-        text = chunk.decode(errors="replace")
-        if '"usage"' in text:
-            for line in text.splitlines():
-                if line.startswith("data:"):
-                    try:
-                        obj = json.loads(line[5:].strip())
-                        usage = obj.get("usage")
-                        if usage:
-                            prompt_tokens = usage.get("prompt_tokens", 0)
-                            completion_tokens = usage.get("completion_tokens", 0)
-                    except Exception:
-                        pass
-        yield chunk
+    saw_content = False
+    try:
+        async for chunk in subscription.stream_chat(messages, model, web_search, image_gen):
+            text = chunk.decode(errors="replace")
+            if '"error":' in text:
+                logger.error("chat in-stream error (model=%s): %s", model, text.strip()[:500])
+            if '"content"' in text:
+                saw_content = True
+            # Capture usage from the final chunk for billing.
+            if '"usage"' in text:
+                for line in text.splitlines():
+                    if line.startswith("data:"):
+                        try:
+                            obj = json.loads(line[5:].strip())
+                            usage = obj.get("usage")
+                            if usage:
+                                prompt_tokens = usage.get("prompt_tokens", 0)
+                                completion_tokens = usage.get("completion_tokens", 0)
+                        except Exception:
+                            pass
+            yield chunk
+    except (GeneratorExit, asyncio.CancelledError):
+        raise  # client went away (stop/barge-in) — not an upstream failure
+    except Exception as e:  # noqa: BLE001
+        logger.error("chat stream aborted mid-stream (model=%s): %r", model, e)
+        try:
+            msg = f"Generation failed mid-stream: {e}"[:300]
+            yield ("data: " + json.dumps({"error": {"message": msg}}) + "\n\n").encode()
+            yield b"data: [DONE]\n\n"
+        except Exception:
+            pass
+        return
+    if not saw_content:
+        logger.warning(
+            "chat stream ended with NO content (model=%s, web_search=%s, image_gen=%s)",
+            model, web_search, image_gen,
+        )
     # Best-effort billing — never blocks or fails the response.
     if pwm_key:
         await pwm_billing.charge(pwm_key, model, prompt_tokens, completion_tokens)

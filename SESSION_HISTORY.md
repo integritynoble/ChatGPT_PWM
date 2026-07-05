@@ -32,6 +32,33 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-05 — In-stream error logging (diagnose "no response" in seconds)
+
+**Request:** follow-up to a transient "no response" report on the live site
+(user integrityyang@gmail.com; account checked out fine — valid key, balance 100;
+the PWM platform had brief unreachable windows at 14:32 and 00:02 UTC matching
+the report; generation stack verified healthy during the window). The blind spot:
+generation failures travel INSIDE a "200 OK" SSE stream and never reach access
+logs — a recurrence was undiagnosable. User asked for in-stream error logging.
+
+**Built** (`web/main.py`, `_stream_with_billing` — the choke point every chat
+stream passes through; both backends restarted):
+- `logger.error` on any in-stream `"error":` event (payload snippet, model);
+- `logger.warning` when a stream ends with **no content** (the UI's exact
+  "No response." case), with model/web_search/image_gen;
+- mid-stream exceptions: logged AND surfaced to the client as a readable SSE
+  error event + `[DONE]` instead of a dead stream (client disconnects —
+  stop/barge-in — are re-raised untouched, no log spam);
+- normal streams log nothing.
+
+**Verified:** 4 unit checks against a stubbed subscription (error event / empty
+stream / mid-stream exception with SSE error emitted + DONE / silent normal
+stream) + real end-to-end generation through the patched file ("LIVE-LOG-OK"
+streamed, server log clean). Live: both backends + both domains healthy after
+restart.
+
+---
+
 ## 2026-07-04 — Mobile: "+ → Add photos & files" was clipped off-screen (bottom sheet)
 
 **Request:** "Please pay attention to mobile version, which is not easy to find the
