@@ -32,6 +32,34 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-05 — Wallet login + the manual key field is gone entirely
+
+**Request:** "Please don't use api key and just use the account to connect. Of
+course, give the wallet as the choice to login account." (Confirmed scope: add a
+wallet button AND remove the advanced key override from Settings.)
+
+**Built** (`web/index.html` only):
+- **"Connect wallet"** is the 4th sign-in button (wallet icon) — routes to the
+  portal's `app-login` with `method=wallet`; the portal login page's existing
+  SIWE box (MetaMask / EIP-6963 wallets) completes auth and mints the `sk-pwm-`
+  key invisibly, same as the Google path. (Portal-side `method=wallet` emphasis
+  would be a cross-repo change — not needed for function, skipped.)
+- **No manual key entry anywhere anymore:** the advanced "Access key" field was
+  removed from full Settings along with its Enter-to-save handler; `saveKey()`
+  now persists only custom instructions; the balance line stays. The key exists
+  purely as an invisible account artifact (minted on sign-in, captured from the
+  redirect, stored in localStorage).
+
+**Verified:** headless 10/10 — login modal shows exactly the 4 SSO buttons; the
+wallet button's intercepted navigation is
+`token.comparegpt.io/api/auth/app-login?redirect_uri=…&method=wallet`; zero
+`#key-input` in the DOM (logged-out and Settings); balance line renders; Save
+persists custom instructions and closes; no console errors. Voice + fast-path +
+mobile-menu suites re-run green. Live on both domains: wallet button served,
+zero key-field markers.
+
+---
+
 ## 2026-07-05 — In-stream error logging (diagnose "no response" in seconds)
 
 **Request:** follow-up to a transient "no response" report on the live site

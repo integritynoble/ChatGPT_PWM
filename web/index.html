@@ -889,6 +889,10 @@
       </button>
       <button class="btn btn-ghost btn-block" onclick="ssoLogin('portal')">Continue with token.comparegpt.io</button>
       <button class="btn btn-ghost btn-block" onclick="ssoLogin('pwm')">Continue with physicsworldmodel.org</button>
+      <button class="btn btn-ghost btn-block" onclick="ssoLogin('wallet')">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
+        Connect wallet
+      </button>
     </div>
 
     <div id="settings-extra" style="display:none">
@@ -945,9 +949,7 @@
       <label style="margin-top:16px">Shared links</label>
       <div id="shared-links" class="mem-list"></div>
 
-      <label for="key-input" style="margin-top:16px">Access key <span style="color:var(--text-3);font-weight:400">— set automatically when you sign in; advanced override only</span></label>
-      <input id="key-input" type="password" placeholder="sk-pwm-…" autocomplete="off" spellcheck="false">
-      <div class="balance" id="balance-line"></div>
+      <div class="balance" id="balance-line" style="margin-top:16px"></div>
 
       <div class="danger-zone">
         <span>Delete all chats on this device</span>
@@ -3078,10 +3080,10 @@ function openSettingsModal(){
   $('#settings-save-btn').style.display = full ? 'inline-flex' : 'none';  // login is SSO-only — nothing to save
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
-  if(full){ $('#key-input').value=getKey(); $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; renderMemoryList(); renderArchivedList(); renderSharedLinks(); renderTasksList(); refreshBalance(); }
+  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; renderMemoryList(); renderArchivedList(); renderSharedLinks(); renderTasksList(); refreshBalance(); }
   applyTheme();
   $('#settings-overlay').classList.add('open');
-  if(full) $('#key-input').blur(); else { const b=$('#login-portals button'); if(b) b.focus(); }
+  if(!full){ const b=$('#login-portals button'); if(b) b.focus(); }
 }
 function closeSettings(){ $('#settings-overlay').classList.remove('open'); }
 // Build the "custom instructions" system message from the saved fields (or '' if none).
@@ -3202,10 +3204,10 @@ function systemContext(c, lite){
   }
   return out;
 }
+// Save full-Settings edits (custom instructions). The key itself is account-managed
+// only — minted by the portal on sign-in and captured from the redirect; there is
+// no manual key entry anywhere in the UI.
 function saveKey(){
-  const k=$('#key-input').value.trim();
-  if(k) localStorage.setItem('cg_pwm_key',k);
-  // Persist custom instructions when editing full Settings.
   if(settingsMode==='full'){
     const a=($('#ci-about')?$('#ci-about').value:'').trim(), st=($('#ci-style')?$('#ci-style').value:'').trim();
     a ? localStorage.setItem('cg_ci_about',a) : localStorage.removeItem('cg_ci_about');
@@ -3213,7 +3215,6 @@ function saveKey(){
     localStorage.setItem('cg_ci_ts', String(now()));
   }
   updateAccount(); closeSettings();
-  if(k) syncNow();   // logging in (or re-keying) pulls the account's synced state
 }
 function setDefaultModel(id){ pickModel(id); }
 function deleteAllChats(){
@@ -3225,7 +3226,6 @@ function logout(){
   closeAllPops();
   localStorage.removeItem('cg_pwm_key'); updateAccount(); openKeyModal();
 }
-$('#key-input').addEventListener('keydown',e=>{ if(e.key==='Enter') saveKey(); });
 
 async function refreshBalance(){
   const k=getKey(); const line=$('#balance-line');
