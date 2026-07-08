@@ -32,6 +32,41 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-08 — Parity refresh: June-2026 model picker, pinned chats, table of contents
+
+**Request:** the recurring directive — "ensure the ChatGPT of PWM is the same as
+the ChatGPT from OpenAI." Researched what real ChatGPT changed since the Jul-3
+audit (help-center release notes via releasebot; OpenAI blog): the 2026-06-10
+**model-picker redesign** (plain speed-vs-depth levels — Thinking Standard →
+Medium, Thinking Extended → High; Plus tier shows Instant/Medium/High; Pro adds
+Extra High/Pro Standard/Pro Extended), a sidebar **Pinned** section, a **table
+of contents** for conversations with 5+ responses, memory "sources", a personal
+finance dashboard (bank-account linking), email-from-chat, and Codex Remote.
+
+**Built** (`web/index.html`):
+- **Model picker** now shows exactly **Instant / Medium / High** with
+  plain-language descriptions. Ids stay stable (`gpt-5.5-instant` low effort —
+  the voice fast lane's alias, now user-pickable; `gpt-5.5` default;
+  `gpt-5.5-thinking` high), so stored prefs/regenerate/deep-research all keep
+  working; retired ids (5.4, 5.4-mini) migrate to Medium on load.
+- **Pinned chats:** chat ⋯ menu gains Pin/Unpin; a "Pinned" section renders
+  above the dated history; `pinned` flag bumps `uts` so it syncs cross-device.
+- **Table of contents:** at 5+ assistant responses a floating TOC button
+  (top-right of the thread) opens a popover listing every user prompt; clicking
+  scrolls to that turn. Hidden in shared view and short chats.
+
+**Deliberately not built** (infra-bound, documented): finance-account linking
+dashboard, email sending from chat, Codex Remote, memory-sources indicator
+(underspecified in public notes), Pro-only picker tiers.
+
+**Verified:** headless 15/15 (picker labels + retired-id migration + topbar
+sublabel; pin → section appears/ordering/unpin/persist; TOC hidden <5 → shown
+at 5 → lists all prompts → click scrolls; zero console errors). All four
+regression suites green (voice, fast-path, barge-in, mobile menu). Deployed to
+both live dirs; both domains serve all three feature markers.
+
+---
+
 ## 2026-07-05 — Wallet login + the manual key field is gone entirely
 
 **Request:** "Please don't use api key and just use the account to connect. Of

@@ -135,6 +135,14 @@
   .menu-row.danger{color:var(--danger)}
   /* plus (+) tools menu */
   #plus-menu{width:300px;max-width:calc(100vw - 24px);padding:6px;overflow-y:auto}
+  /* table of contents (5+ responses) */
+  #toc-btn{display:none;position:fixed;top:60px;right:14px;z-index:30;width:36px;height:36px;border-radius:50%;
+           align-items:center;justify-content:center;background:var(--composer);border:1px solid var(--border);
+           color:var(--text-2);cursor:pointer}
+  #toc-btn:hover{color:var(--text);background:var(--hover)}
+  #toc-pop{position:fixed;top:102px;right:14px;width:300px;max-width:calc(100vw - 24px);
+           max-height:min(60dvh,480px);overflow-y:auto}
+  #toc-pop .menu-row{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;width:100%;text-align:left}
   .plus-item .info{display:flex;flex-direction:column;min-width:0}
   .plus-item .info .t{font-size:14px;font-weight:500}
   .plus-item .info .d{font-size:12px;color:var(--text-3);margin-top:1px}
@@ -722,6 +730,10 @@
     <div class="pop" id="model-menu"></div>
 
     <div id="scroll">
+      <button id="toc-btn" title="Table of contents" aria-label="Table of contents" onclick="toggleToc(event)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/></svg>
+      </button>
+      <div class="pop" id="toc-pop"></div>
       <div id="thread"></div>
     </div>
 
@@ -1102,13 +1114,15 @@ function enhance(container){
 }
 
 // ── State ───────────────────────────────────────────────────────────────
+// June 2026 picker: plain speed-vs-depth levels, not a model catalogue
+// (Thinking Standard → Medium, Thinking Extended → High; ids stay stable).
 const MODELS=[
-  {id:'gpt-5.5', name:'ChatGPT 5.5', sub:'5.5', desc:'Great for most tasks'},
-  {id:'gpt-5.5-thinking', name:'ChatGPT Thinking', sub:'Thinking', desc:'Reasons longer for hard problems'},
-  {id:'gpt-5.4', name:'ChatGPT 5.4', sub:'5.4', desc:'Fast and capable'},
-  {id:'gpt-5.4-mini', name:'ChatGPT 5.4 mini', sub:'5.4-mini', desc:'Fastest, most concise'},
+  {id:'gpt-5.5-instant', name:'Instant', sub:'Instant', desc:'Fastest answers for everyday tasks'},
+  {id:'gpt-5.5', name:'Medium', sub:'Medium', desc:'Balanced speed and thinking'},
+  {id:'gpt-5.5-thinking', name:'High', sub:'High', desc:'Thinks longer for harder problems'},
 ];
 let currentModel = localStorage.getItem('cg_model') || 'gpt-5.5';
+if(!MODELS.some(m=>m.id===currentModel)) currentModel='gpt-5.5';   // migrate retired ids (5.4 etc.)
 let convos = JSON.parse(localStorage.getItem('cg_convos')||'[]');
 // migrate legacy assistant messages (flat content) -> versioned variants
 convos.forEach(c=>(c.messages||[]).forEach(m=>{
@@ -1423,12 +1437,7 @@ function renderChatList(){
     if(q){ const e=document.createElement('div'); e.className='empty-list'; e.textContent='No chats found.'; list.appendChild(e); }
     return;
   }
-  let lastGroup=null;
-  shown.forEach(c=>{
-    if(!q){
-      const g=dateGroup(c.ts||0);
-      if(g!==lastGroup){ lastGroup=g; const h=document.createElement('div'); h.className='sb-section'; h.textContent=g; list.appendChild(h); }
-    }
+  const addItem=(c)=>{
     const el=document.createElement('div');
     el.className='chat-item'+(c.id===activeId?' active':'');
     el.dataset.id=c.id;
@@ -1438,7 +1447,29 @@ function renderChatList(){
     el.querySelector('.title').onclick=()=>loadConvo(c.id);
     el.querySelector('.menu-btn').onclick=(ev)=>{ev.stopPropagation();chatItemMenu(c.id,ev.currentTarget);};
     list.appendChild(el);
+  };
+  // Pinned chats sit in their own section above the dated history.
+  if(!q){
+    const pinned=shown.filter(c=>c.pinned);
+    if(pinned.length){
+      const h=document.createElement('div'); h.className='sb-section'; h.textContent='Pinned'; list.appendChild(h);
+      pinned.forEach(addItem);
+    }
+    shown=shown.filter(c=>!c.pinned);
+  }
+  let lastGroup=null;
+  shown.forEach(c=>{
+    if(!q){
+      const g=dateGroup(c.ts||0);
+      if(g!==lastGroup){ lastGroup=g; const h=document.createElement('div'); h.className='sb-section'; h.textContent=g; list.appendChild(h); }
+    }
+    addItem(c);
   });
+}
+function togglePin(id){
+  const c=convos.find(c=>c.id===id); if(!c) return;
+  c.pinned=!c.pinned; c.uts=now();
+  persist(); renderChatList();
 }
 
 function chatItemMenu(id, anchor){
@@ -1449,11 +1480,13 @@ function chatItemMenu(id, anchor){
   const r=anchor.getBoundingClientRect();
   menu.style.top=(r.bottom+4)+'px'; menu.style.left=Math.min(r.left,window.innerWidth-200)+'px';
   menu.innerHTML=`
+    <button class="menu-row" data-act="pin"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/></svg>${c.pinned?'Unpin':'Pin'}</button>
     <button class="menu-row" data-act="rename"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Rename</button>
     <button class="menu-row" data-act="project"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>${c.projectId?'Move / remove project':'Add to project'}</button>
     <button class="menu-row" data-act="archive"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><path d="M10 13h4"/></svg>Archive</button>
     <button class="menu-row danger" data-act="delete"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Delete</button>`;
   document.body.appendChild(menu);
+  menu.querySelector('[data-act="pin"]').onclick=(e)=>{e.stopPropagation();closeAllPops();togglePin(id);};
   menu.querySelector('[data-act="rename"]').onclick=(e)=>{e.stopPropagation();closeAllPops();startRename(id);};
   menu.querySelector('[data-act="project"]').onclick=(e)=>{e.stopPropagation();closeAllPops();projectPicker(id,anchor);};
   menu.querySelector('[data-act="archive"]').onclick=(e)=>{e.stopPropagation();closeAllPops();archiveConvo(id);};
@@ -2253,6 +2286,30 @@ function renderThread(){
   thread.innerHTML='';
   activeMsgs().forEach((m,i)=>renderMessage(m,i));
   markLast();
+  updateToc();
+}
+
+// ── Table of contents (conversations with 5+ responses) ─────────────────
+function updateToc(){
+  const btn=$('#toc-btn'); if(!btn) return;
+  const n=thread.querySelectorAll('.msg.assistant').length;
+  btn.style.display = (n>=5 && !sharedView) ? 'flex' : 'none';
+  const pop=$('#toc-pop'); if(pop) pop.classList.remove('open');
+}
+function toggleToc(e){
+  e.stopPropagation();
+  const pop=$('#toc-pop');
+  const open=pop.classList.contains('open'); closeAllPops(); if(open) return;
+  const items=[...thread.querySelectorAll('.msg.user')];
+  pop.innerHTML = items.map((el,i)=>{
+    const t=(el.textContent||'').replace(/\s+/g,' ').trim().slice(0,52);
+    return `<button class="menu-row" data-toc="${i}">${escapeHtml(t||'(attachment)')}</button>`;
+  }).join('') || '<div class="empty-list">No prompts.</div>';
+  pop.querySelectorAll('[data-toc]').forEach(b=>{
+    b.onclick=(ev)=>{ ev.stopPropagation(); closeAllPops();
+      const el=items[+b.dataset.toc]; if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); };
+  });
+  pop.classList.add('open');
 }
 
 function renderMessage(m, idx){
