@@ -1944,13 +1944,28 @@ function renderProjectDetail(id){
     <h2 class="proj-title">${escapeHtml(p.name)}</h2>
     <button class="btn btn-primary" onclick="newChatInProject('${id}')">New chat in this project</button>
     <div class="proj-files-sec">
+      <div class="proj-files-head"><h3>Instructions</h3></div>
+      <p class="proj-files-note">Applied to every chat in this project — these override your global custom instructions here.</p>
+      <textarea id="proj-instr" class="ci-field" rows="3" maxlength="1500" spellcheck="false"
+        placeholder="e.g. This project is my thesis. Use a formal academic tone and cite sources."
+        onchange="saveProjectInstructions('${id}', this.value)"></textarea>
+    </div>
+    <div class="proj-files-sec">
       <div class="proj-files-head"><h3>Project files</h3>
         <button class="btn btn-sm btn-ghost" onclick="document.getElementById('proj-file-input').click()">Add files</button></div>
       <p class="proj-files-note">Files added here are shared as context with every chat in this project (up to 40).</p>
       <div class="file-list" id="proj-file-list"><div class="proj-empty">Loading…</div></div>
     </div>
     <div class="proj-chats">${rows}</div></div>`;
+  const ti=$('#proj-instr'); if(ti) ti.value=p.instructions||'';
   renderProjectFiles(id);
+}
+function saveProjectInstructions(id, val){
+  const p=projectById(id); if(!p) return;
+  val=(val||'').trim();
+  if(val) p.instructions=val; else delete p.instructions;
+  p.uts=now(); saveProjects();
+  showToast('Project instructions saved');
 }
 let projectFilesCache={};   // pid -> [{name,kind,content}] injected into project chats
 // Load a project's files (with content) so systemContext can include them.
@@ -2694,6 +2709,7 @@ function srcPopover(srcs, anchor){
   let h='<div class="menu-head">Sources used for this response</div>';
   if(srcs.gpt) h+=`<div class="src-row"><span class="src-kind">GPT</span><span>${escapeHtml(srcs.gpt)}</span></div>`;
   if(srcs.ci)  h+=`<div class="src-row"><span class="src-kind">Custom instructions</span><button class="btn btn-sm btn-ghost" data-src-ci>Edit in Settings</button></div>`;
+  if(srcs.projInstr) h+=`<div class="src-row"><span class="src-kind">Project instructions</span><span>${escapeHtml(srcs.projInstr===true?'this project':srcs.projInstr)}</span></div>`;
   if(srcs.mem && srcs.mem.length){
     h+='<div class="menu-head">Saved memories</div>'+srcs.mem.map(m=>{
       const still=memories.some(x=>x.id===m.id);
@@ -3577,7 +3593,12 @@ function captureMemories(text){
 function systemContext(c, lite){
   const out=[];
   if(c && c.gptId){ const g=gptById(c.gptId); if(g && (g.instructions||g.name)) out.push('You are "'+g.name+'", a custom GPT. '+(g.instructions||'')); }
-  const ci=customInstructions(); if(ci) out.push(ci);
+  // Project instructions override global custom instructions — but only inside
+  // that project (ChatGPT Projects behavior).
+  const proj=(c && c.projectId) ? projectById(c.projectId) : null;
+  const projInstr=proj && (proj.instructions||'').trim();
+  if(projInstr) out.push('Instructions for this project (they take precedence within this project):\n'+projInstr);
+  else { const ci=customInstructions(); if(ci) out.push(ci); }
   const mem=memoryBlock(); if(mem) out.push(mem);
   // lite (voice turns): persona + preferences + memory only — the tool
   // instruction blocks below are unusable by voice and only slow the model.
@@ -3779,11 +3800,14 @@ function graftHeavyFields(inc, loc){
 function captureSources(c, lite){
   const s={};
   if(c && c.gptId){ const g=gptById(c.gptId); if(g && g.name) s.gpt=g.name; }
-  if(customInstructions()) s.ci=true;
+  const proj=(c && c.projectId) ? projectById(c.projectId) : null;
+  const projInstr=proj && (proj.instructions||'').trim();
+  if(projInstr) s.projInstr=proj.name||true;   // project instructions override global CI
+  else if(customInstructions()) s.ci=true;
   if(!tempMode && memoryEnabled() && memories.length) s.mem=memories.map(m=>({id:m.id, text:m.text}));
   if(!lite && c && c.projectId && projectFilesCache[c.projectId] && projectFilesCache[c.projectId].length)
     s.files=projectFilesCache[c.projectId].map(f=>f.name);
-  return (s.gpt||s.ci||s.mem||s.files) ? s : null;
+  return (s.gpt||s.ci||s.projInstr||s.mem||s.files) ? s : null;
 }
 function stripConvoForSync(c){
   return {...c, messages:(c.messages||[]).map(m=>{
