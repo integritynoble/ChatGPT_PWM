@@ -163,6 +163,9 @@
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   :focus-visible{outline:2px solid #7eb6ff;outline-offset:2px}
   :root[data-theme="light"] :focus-visible{outline-color:#0b62d6}
+  #net-banner{position:fixed;top:0;left:0;right:0;z-index:450;text-align:center;padding:7px 12px;font-size:13px;
+              background:var(--danger);color:#fff}
+  #net-banner[hidden]{display:none}
   .login-or{display:flex;align-items:center;text-align:center;color:var(--text-3);font-size:12px;margin:14px 0 8px}
   .login-or::before,.login-or::after{content:"";flex:1;border-top:1px solid var(--border)}
   .login-or span{padding:0 12px}
@@ -656,6 +659,7 @@
 
 <a href="#main" id="skip-link">Skip to conversation</a>
 <div id="sr-status" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+<div id="net-banner" role="status" hidden>⚠ You're offline — reconnect to keep chatting.</div>
 <div id="app">
   <!-- Sidebar -->
   <aside id="sidebar">
@@ -3182,6 +3186,7 @@ async function onSend(e){
   if(generating){ ciStopped=true; if(abortCtl) abortCtl.abort(); return; }
   const text=input.value.trim();
   if(!text && !attachments.length) return;
+  if(!navigator.onLine){ showToast('You appear to be offline — check your connection.'); return; }
   // No PWM token yet → send them to the portal to get one first.
   if(!getKey()){ showToast('Sign in to continue'); openKeyModal(); return; }
   const atts=attachments.slice(); attachments=[]; renderAttachments();
@@ -3199,8 +3204,8 @@ async function onSend(e){
   streamReply();
 }
 
-async function streamReply(model, hint, depth){
-  depth=depth||0;
+async function streamReply(model, hint, depth, retry){
+  depth=depth||0; retry=retry||0;
   const c=activeConvo(); if(!c) return;
   model = model || currentModel;
   // contract: the LAST message is an assistant whose current variant is the empty target
@@ -3264,7 +3269,7 @@ async function streamReply(model, hint, depth){
   markLast(); scrollBottom(true);
   setGenerating(true);
   abortCtl=new AbortController();
-  let full=''; let firstToken=false; let raf=null; let sources=[]; let thinking=''; let genImage='';
+  let full=''; let firstToken=false; let raf=null; let sources=[]; let thinking=''; let genImage=''; let streamErr=null; let httpStatus=0;
   // Hide any trailing [[memory: …]] marker from the live view (kept out of display).
   const forDisplay=(t)=>t.replace(/\n*\[\[\s*memory\s*:[^\]]*\]?\]?\s*$/i,'');
   const paint=()=>{
@@ -3290,9 +3295,13 @@ async function streamReply(model, hint, depth){
       signal:abortCtl.signal
     });
     if(!resp.ok){
+      httpStatus=resp.status;
       if(resp.status===401){ handleAuthFailure(); throw new Error('__auth401__'); }
-      const err=await resp.json().catch(()=>({detail:resp.statusText}));
-      throw new Error(err.detail||('HTTP '+resp.status));
+      const err=await resp.json().catch(()=>({}));
+      let detail=err.detail||('HTTP '+resp.status);
+      if(resp.status===429) detail='ChatGPT is busy right now — please wait a few seconds and try again.';
+      else if(resp.status>=500) detail='The server hit a problem — retrying…';
+      throw new Error(detail);
     }
     const reader=resp.body.getReader(); const dec=new TextDecoder();
     let buf='';
@@ -3317,15 +3326,30 @@ async function streamReply(model, hint, depth){
         }catch(_){}
       }
     }
-  }catch(err){
-    if(err.name!=='AbortError' && err.message!=='__auth401__'){
-      let m=err.message||'Something went wrong';
-      if(/pwm key|balance/i.test(m)) m+=' \u2014 get a valid token at token.comparegpt.io';
-      showToast(m);
-    }
-  }finally{
+  }catch(err){ streamErr=err; }
+  finally{
     if(raf) cancelAnimationFrame(raf);
     md.classList.remove('cursor');
+    const aborted = streamErr && streamErr.name==='AbortError';
+    const authFail = streamErr && streamErr.message==='__auth401__';
+    const gotContent = full.trim() || genImage;
+    const emsg = (streamErr&&streamErr.message)||'';
+    // Auto-retry ONCE on a transient failure that produced nothing \u2014 a dropped
+    // stream (clean EOF or thrown) or a 5xx. NOT on user-abort, auth, a 4xx
+    // client error (incl. 429 rate-limit / 402 balance), or when offline.
+    const clientErr = httpStatus>=400 && httpStatus<500;
+    if(!aborted && !authFail && !gotContent && !clientErr && retry<1 && navigator.onLine){
+      md.innerHTML='<div class="thinking"><span></span><span></span><span></span></div>';
+      abortCtl=null;
+      setTimeout(()=>streamReply(model, hint, depth, retry+1), 900);
+      return;   // the retry owns teardown
+    }
+    if(streamErr && !aborted && !authFail){
+      let m=emsg||'Something went wrong';
+      if(/pwm key|balance/i.test(m)) m+=' \u2014 get a valid token at token.comparegpt.io';
+      else if(!gotContent && !navigator.onLine) m='You appear to be offline \u2014 check your connection and try again.';
+      showToast(m);
+    }
     let continuing=false;
     if(full.trim() || genImage){
       full=captureMemories(full);   // save & strip any [[memory: …]] the model emitted
@@ -3925,6 +3949,14 @@ document.addEventListener('keydown', e=>{
 const MODAL_IDS={'settings-overlay':'Settings','voice-overlay':'Voice mode',
   'share-overlay':'Share link','lightbox':'Image viewer','shortcuts-overlay':'Keyboard shortcuts'};
 function srAnnounce(msg){ const el=$('#sr-status'); if(el) el.textContent=msg; }
+// Network status banner — reflect offline/online so a failed send is explained.
+function updateNetBanner(){
+  const el=$('#net-banner'); if(!el) return;
+  if(navigator.onLine){ el.hidden=true; }
+  else { el.hidden=false; srAnnounce('You are offline.'); }
+}
+window.addEventListener('online', ()=>{ updateNetBanner(); showToast('Back online'); });
+window.addEventListener('offline', updateNetBanner);
 function modalFocusables(el){
   return [...el.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')]
     .filter(x=>x.offsetParent!==null);
@@ -3963,6 +3995,7 @@ function initA11y(){
 (function init(){
   applyTheme();
   initA11y();
+  updateNetBanner();
   const shareMatch=location.pathname.match(/^\/share\/([A-Za-z0-9_-]+)/);
   if(shareMatch){ initSharedView(shareMatch[1]); return; }
   const groupMatch=location.pathname.match(/^\/g\/([A-Za-z0-9_-]+)/);
