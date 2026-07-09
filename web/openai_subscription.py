@@ -25,6 +25,14 @@ import httpx
 OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
 CHATGPT_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses"
+
+# PWM exchange routing: when a request carries a PWM key, the turn is served by
+# a POOL PROVIDER via the exchange (provider earns PWM, the key's wallet is
+# billed by exchange settlement) instead of this host's own subscription.
+_PLATFORM = os.environ.get("PWM_PLATFORM_URL", "https://physicsworldmodel.org").rstrip("/")
+EXCHANGE_RESPONSES_URL = os.environ.get(
+    "PWM_EXCHANGE_RESPONSES_URL",
+    f"{_PLATFORM}/api/v1/exchange/openai/v1/responses")
 ORIGINATOR = "codex_cli_rs"
 
 # Where the ChatGPT-plan OAuth tokens live. Override with CHATGPT_AUTH_FILE.
@@ -34,27 +42,35 @@ AUTH_FILE = Path(
 
 # The ChatGPT-account backend only accepts the plan's own model slugs.
 # Map UI choices onto the models this subscription actually serves.
-DEFAULT_MODEL = "gpt-5.5"
-SUPPORTED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
+# GPT-5.6 (GA 2026-07-09): the number is the generation; Sol/Terra/Luna are
+# durable capability tiers. Verified the subscription serves gpt-5.6-{sol,terra,
+# luna} (bare "gpt-5.6" and bogus slugs 400). The simplified picker's effort
+# levels map onto tiers: Instant→Terra (fast), Medium/High→Sol (top tier, with
+# low/default/high reasoning effort set from the -instant/-thinking suffix).
+DEFAULT_MODEL = "gpt-5.6-sol"
+SUPPORTED_MODELS = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"]
 _MODEL_MAP = {
     # Friendly aliases → real backend slug
-    "gpt-4o": "gpt-5.5",
-    "gpt-4o-mini": "gpt-5.4-mini",
-    "gpt-4-turbo": "gpt-5.4",
-    "gpt-4": "gpt-5.4",
-    "gpt-3.5-turbo": "gpt-5.4-mini",
-    "o3": "gpt-5.5",
-    "o3-mini": "gpt-5.4-mini",
-    "o1": "gpt-5.5",
-    "o1-mini": "gpt-5.4-mini",
-    # Native slugs pass through
-    "gpt-5.5": "gpt-5.5",
-    "gpt-5.4": "gpt-5.4",
-    "gpt-5.4-mini": "gpt-5.4-mini",
-    # "Thinking" = GPT-5.5 with higher reasoning effort
-    "gpt-5.5-thinking": "gpt-5.5",
-    # "Instant" = GPT-5.5 with low reasoning effort (voice mode's fast lane)
-    "gpt-5.5-instant": "gpt-5.5",
+    "gpt-4o": "gpt-5.6-sol",
+    "gpt-4o-mini": "gpt-5.6-terra",
+    "gpt-4-turbo": "gpt-5.6-sol",
+    "gpt-4": "gpt-5.6-sol",
+    "gpt-3.5-turbo": "gpt-5.6-terra",
+    "o3": "gpt-5.6-sol",
+    "o3-mini": "gpt-5.6-terra",
+    "o1": "gpt-5.6-sol",
+    "o1-mini": "gpt-5.6-terra",
+    # 5.6 tier slugs pass through
+    "gpt-5.6-sol": "gpt-5.6-sol",
+    "gpt-5.6-terra": "gpt-5.6-terra",
+    "gpt-5.6-luna": "gpt-5.6-luna",
+    # Simplified picker → 5.6 tier + effort (effort from the suffix, below)
+    "gpt-5.5": "gpt-5.6-sol",            # Medium → Sol (default effort)
+    "gpt-5.5-thinking": "gpt-5.6-sol",   # High → Sol (high effort)
+    "gpt-5.5-instant": "gpt-5.6-terra",  # Instant → Terra (fast; low effort)
+    # Legacy 5.4/5.5 native slugs still resolve (older synced prefs)
+    "gpt-5.4": "gpt-5.6-terra",
+    "gpt-5.4-mini": "gpt-5.6-terra",
 }
 
 
@@ -284,12 +300,32 @@ def _headers(access_token: str, account_id: str) -> dict:
 
 
 async def stream_chat(messages: List[dict], model: str, web_search: bool = False,
-                      image_gen: bool = False) -> AsyncIterator[bytes]:
+                      image_gen: bool = False,
+                      pwm_key: "Optional[str]" = None) -> AsyncIterator[bytes]:
     """
-    Proxy a chat request through the ChatGPT subscription backend and yield
-    chat-completions-style SSE lines (``data: {...}``) the frontend understands.
+    Proxy a chat request and yield chat-completions-style SSE lines
+    (``data: {...}``) the frontend understands. With a ``pwm_key`` the turn is
+    routed through the PWM EXCHANGE (pool provider serves & earns; the key's
+    wallet is billed); without one it falls back to this host's subscription.
     """
     payload = _build_payload(messages, model, web_search, image_gen)
+
+    if pwm_key:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=30)) as client:
+            async with client.stream(
+                "POST",
+                EXCHANGE_RESPONSES_URL,
+                headers={"Authorization": f"Bearer {pwm_key}",
+                         "Content-Type": "application/json"},
+                json=payload,
+            ) as resp:
+                if resp.status_code != 200:
+                    body = (await resp.aread()).decode(errors="replace")
+                    raise _UpstreamError(resp.status_code, body)
+                async for line in resp.aiter_lines():
+                    async for chunk in _translate_line(line, model):
+                        yield chunk
+        return
 
     async def _attempt(access_token: str, account_id: str):
         async with httpx.AsyncClient(timeout=httpx.Timeout(300, connect=30)) as client:
