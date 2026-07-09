@@ -143,6 +143,22 @@
   #toc-pop{position:fixed;top:102px;right:14px;width:300px;max-width:calc(100vw - 24px);
            max-height:min(60dvh,480px);overflow-y:auto}
   #toc-pop .menu-row{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;width:100%;text-align:left}
+  /* interactive charts */
+  .cg-chart{margin:14px 0}
+  .cg-chart-wrap{position:relative;border:1px solid var(--border);border-radius:12px;padding:10px 12px 6px;background:var(--code-bg)}
+  .cg-chart-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px}
+  .cg-chart-kind{font-size:12px;color:var(--text-3);text-transform:capitalize}
+  .cg-chart-dl{font-size:12px;color:var(--text-2);padding:3px 9px;border-radius:6px;border:1px solid var(--border)}
+  .cg-chart-dl:hover{color:var(--text);background:var(--hover)}
+  .cg-chart-svg{display:block;width:100%;height:auto;overflow:visible}
+  .cg-ch-title{fill:var(--text);font-size:15px;font-weight:600}
+  .cg-ch-axtext{fill:var(--text-3);font-size:11px}
+  .cg-ch-grid{stroke:var(--border)}
+  .cg-ch-bar,.cg-ch-slice,.cg-ch-dot{cursor:pointer;transition:opacity .12s}
+  .cg-ch-bar:hover,.cg-ch-slice:hover,.cg-ch-dot:hover{opacity:.8}
+  .cg-ch-tip{position:absolute;pointer-events:none;background:var(--menu);border:1px solid var(--border);
+             border-radius:8px;padding:6px 9px;font-size:12px;color:var(--text);box-shadow:0 6px 20px rgba(0,0,0,.35);
+             white-space:nowrap;z-index:5}
   /* memory sources popover */
   .src-pop{width:320px;max-width:calc(100vw - 24px);max-height:min(55dvh,440px);overflow-y:auto}
   .src-row{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:7px 10px;
@@ -1095,6 +1111,11 @@ function renderMarkdown(text){
 }
 
 function enhance(container){
+  container.querySelectorAll('.cg-chart:not([data-done])').forEach(el=>{
+    el.dataset.done='1';
+    try{ const spec=JSON.parse(decodeURIComponent(escape(atob(el.dataset.chart)))); drawChart(el, spec); }
+    catch(e){ el.textContent='(chart could not be rendered)'; }
+  });
   container.querySelectorAll('pre > code').forEach(code=>{
     if(code.dataset.enhanced) return;
     code.dataset.enhanced='1';
@@ -2112,6 +2133,160 @@ const RUN_OPEN_RE=/\[\[run-python\]\]\r?\n?([\s\S]*)$/i;   // unterminated (mid-
 function ciActive(c){ return codeInterp || !!(c && c.ciOn); }
 function extractRunPython(text){ const m=text.match(RUN_RE); return m ? m[1].trim() : null; }
 // Turn run-python markers into a python code fence for display (closed or streaming).
+// ── Interactive charts ──────────────────────────────────────────────────
+// The model emits [[chart]]{spec}[[/chart]]; we render it as an inline
+// interactive SVG (bar/line/pie/scatter) with hover tooltips + PNG download.
+// Purely client-side — no backend round-trip.
+const CHART_RE=/\[\[chart\]\]\r?\n?([\s\S]*?)\r?\n?\[\[\/chart\]\]/gi;
+const CHART_OPEN_RE=/\[\[chart\]\][\s\S]*$/i;
+const CHART_PALETTE=['#4e79a7','#f28e2b','#59a14f','#e15759','#b07aa1','#76b7b2','#edc948','#9c755f'];
+function chartColor(i){ return CHART_PALETTE[i % CHART_PALETTE.length]; }
+// Replace complete [[chart]] blocks with placeholder divs (base64 spec);
+// hide a trailing incomplete block while it is still streaming.
+function renderChartMarkers(text){
+  CHART_RE.lastIndex=0;
+  let out=text.replace(CHART_RE,(_,body)=>{
+    try{ const spec=JSON.parse(body.trim());
+      const enc=btoa(unescape(encodeURIComponent(JSON.stringify(spec))));
+      return '\n\n<div class="cg-chart" data-chart="'+enc+'"></div>\n\n'; }
+    catch(e){ return ''; }
+  });
+  if(/\[\[chart\]\]/i.test(out)) out=out.replace(CHART_OPEN_RE,'');   // incomplete tail
+  return out;
+}
+function svgEl(tag, attrs){ const e=document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for(const k in attrs) e.setAttribute(k, attrs[k]); return e; }
+function niceMax(v){ if(v<=0) return 1; const p=Math.pow(10,Math.floor(Math.log10(v)));
+  const n=v/p; return (n<=1?1:n<=2?2:n<=5?5:10)*p; }
+// Turn a chart placeholder div into a live SVG chart.
+function drawChart(holder, spec){
+  holder.innerHTML='';
+  const type=(spec.type||'bar').toLowerCase();
+  const W=640, H=360, P={t:spec.title?40:20, r:18, b:52, l:52};
+  const wrap=document.createElement('div'); wrap.className='cg-chart-wrap';
+  const bar=document.createElement('div'); bar.className='cg-chart-bar';
+  bar.innerHTML='<span class="cg-chart-kind">'+escapeHtml(type)+' chart</span>';
+  const dl=document.createElement('button'); dl.className='cg-chart-dl'; dl.type='button';
+  dl.textContent='Download PNG';
+  bar.appendChild(dl); wrap.appendChild(bar);
+  const svg=svgEl('svg',{viewBox:'0 0 '+W+' '+H, class:'cg-chart-svg', role:'img',
+    'aria-label':(spec.title||type+' chart')});
+  const tip=document.createElement('div'); tip.className='cg-ch-tip'; tip.style.display='none';
+  wrap.appendChild(svg); wrap.appendChild(tip); holder.appendChild(wrap);
+  if(spec.title){ const t=svgEl('text',{x:W/2, y:24, 'text-anchor':'middle', class:'cg-ch-title'});
+    t.textContent=spec.title; svg.appendChild(t); }
+  const showTip=(html,x,y)=>{ tip.innerHTML=html; tip.style.display='block';
+    tip.style.left=Math.max(0,Math.min(x, wrap.clientWidth-tip.offsetWidth-4))+'px';
+    tip.style.top=Math.max(0,y-tip.offsetHeight-8)+'px'; };
+  const hideTip=()=>{ tip.style.display='none'; };
+  const px=(sx)=> (sx/W)*wrap.clientWidth, py=(sy)=> (sy/H)*wrap.clientHeight;
+  const data=spec.data||{};
+
+  if(type==='pie'){
+    const labels=data.labels||[]; const vals=data.values||(data.datasets&&data.datasets[0]&&data.datasets[0].values)||[];
+    const total=vals.reduce((a,b)=>a+(+b||0),0)||1;
+    const cx=W/2, cy=(H-16)/2+ (spec.title?10:0), r=Math.min(cx,cy)-30;
+    let a0=-Math.PI/2;
+    vals.forEach((v,i)=>{
+      const frac=(+v||0)/total, a1=a0+frac*2*Math.PI;
+      const large=(a1-a0)>Math.PI?1:0;
+      const x0=cx+r*Math.cos(a0), y0=cy+r*Math.sin(a0), x1=cx+r*Math.cos(a1), y1=cy+r*Math.sin(a1);
+      const path=svgEl('path',{d:`M${cx} ${cy} L${x0} ${y0} A${r} ${r} 0 ${large} 1 ${x1} ${y1} Z`,
+        fill:chartColor(i), class:'cg-ch-slice'});
+      const mid=(a0+a1)/2, tx=cx+(r*0.6)*Math.cos(mid), ty=cy+(r*0.6)*Math.sin(mid);
+      path.addEventListener('mousemove',e=>showTip('<b>'+escapeHtml(labels[i]||'')+'</b><br>'+v+' ('+Math.round(frac*100)+'%)', px(tx), py(ty)));
+      path.addEventListener('mouseleave',hideTip);
+      svg.appendChild(path); a0=a1;
+    });
+    legendRow(svg, labels.map((l,i)=>({label:l, color:chartColor(i)})), W, H);
+  } else {
+    const labels=data.labels||[];
+    let datasets=data.datasets||[];
+    if(type==='scatter'){
+      // points-based; compute x/y extents
+      const xs=[], ys=[];
+      datasets.forEach(d=>(d.points||[]).forEach(p=>{ xs.push(+p.x); ys.push(+p.y); }));
+      const xmin=Math.min(0,...xs), xmax=niceMax(Math.max(1,...xs)), ymax=niceMax(Math.max(1,...ys));
+      axes(svg, P, W, H, ymax, null);
+      datasets.forEach((d,di)=>{ (d.points||[]).forEach(p=>{
+        const cxp=P.l+((+p.x-xmin)/(xmax-xmin||1))*(W-P.l-P.r);
+        const cyp=(H-P.b)-((+p.y)/(ymax||1))*(H-P.t-P.b);
+        const dot=svgEl('circle',{cx:cxp, cy:cyp, r:4.5, fill:chartColor(di), class:'cg-ch-dot'});
+        dot.addEventListener('mousemove',e=>showTip('<b>'+escapeHtml(d.label||'')+'</b><br>('+p.x+', '+p.y+')', px(cxp), py(cyp)));
+        dot.addEventListener('mouseleave',hideTip);
+        svg.appendChild(dot);
+      }); });
+      xAxisTicks(svg,P,W,H,[xmin,xmax]);
+      legendRow(svg, datasets.map((d,i)=>({label:d.label||('Series '+(i+1)), color:chartColor(i)})), W, H);
+    } else {
+      const maxv=niceMax(Math.max(1,...datasets.flatMap(d=>(d.values||[]).map(v=>+v||0))));
+      axes(svg, P, W, H, maxv, labels);
+      const n=labels.length, bw=(W-P.l-P.r)/(n||1);
+      if(type==='line'){
+        datasets.forEach((d,di)=>{
+          const pts=(d.values||[]).map((v,i)=>[P.l+bw*i+bw/2, (H-P.b)-((+v||0)/maxv)*(H-P.t-P.b)]);
+          const path=svgEl('polyline',{points:pts.map(p=>p.join(',')).join(' '), fill:'none',
+            stroke:chartColor(di), 'stroke-width':2.5, class:'cg-ch-line'});
+          svg.appendChild(path);
+          pts.forEach((p,i)=>{ const dot=svgEl('circle',{cx:p[0],cy:p[1],r:3.5,fill:chartColor(di)});
+            dot.addEventListener('mousemove',e=>showTip('<b>'+escapeHtml(labels[i]||'')+'</b><br>'+escapeHtml(d.label||'')+': '+d.values[i], px(p[0]), py(p[1])));
+            dot.addEventListener('mouseleave',hideTip); svg.appendChild(dot); });
+        });
+      } else { // bar (grouped)
+        const g=datasets.length||1, gap=bw*0.18, iw=(bw-gap)/g;
+        datasets.forEach((d,di)=>{ (d.values||[]).forEach((v,i)=>{
+          const h=((+v||0)/maxv)*(H-P.t-P.b), x=P.l+bw*i+gap/2+iw*di, y=(H-P.b)-h;
+          const rect=svgEl('rect',{x:x, y:y, width:Math.max(1,iw-2), height:Math.max(0,h),
+            fill:chartColor(di), class:'cg-ch-bar', rx:2});
+          rect.addEventListener('mousemove',e=>showTip('<b>'+escapeHtml(labels[i]||'')+'</b><br>'+escapeHtml(d.label||'')+': '+v, px(x+iw/2), py(y)));
+          rect.addEventListener('mouseleave',hideTip);
+          svg.appendChild(rect);
+        }); });
+      }
+      if(datasets.length>1) legendRow(svg, datasets.map((d,i)=>({label:d.label||('Series '+(i+1)), color:chartColor(i)})), W, H);
+    }
+  }
+  dl.onclick=()=>downloadChartPng(svg, (spec.title||'chart'));
+}
+function axes(svg, P, W, H, maxv, labels){
+  const gl=document.querySelector(':root'); // grid/text color from CSS var via class
+  for(let i=0;i<=4;i++){ const y=(H-P.b)-(i/4)*(H-P.t-P.b);
+    svg.appendChild(svgEl('line',{x1:P.l,y1:y,x2:W-P.r,y2:y,class:'cg-ch-grid'}));
+    const t=svgEl('text',{x:P.l-8,y:y+4,'text-anchor':'end',class:'cg-ch-axtext'});
+    t.textContent=String(Math.round(maxv*i/4)); svg.appendChild(t); }
+  if(labels){ const n=labels.length, bw=(W-P.l-P.r)/(n||1);
+    labels.forEach((l,i)=>{ const t=svgEl('text',{x:P.l+bw*i+bw/2,y:H-P.b+18,'text-anchor':'middle',class:'cg-ch-axtext'});
+      t.textContent=String(l).slice(0,12); svg.appendChild(t); }); }
+}
+function xAxisTicks(svg,P,W,H,range){ [0,0.5,1].forEach(f=>{ const x=P.l+f*(W-P.l-P.r);
+  const t=svgEl('text',{x:x,y:H-P.b+18,'text-anchor':'middle',class:'cg-ch-axtext'});
+  t.textContent=String(Math.round(range[0]+f*(range[1]-range[0]))); svg.appendChild(t); }); }
+function legendRow(svg, items, W, H){
+  const y=H-14; let x=W/2 - items.length*46;
+  items.forEach(it=>{ svg.appendChild(svgEl('rect',{x:x,y:y-9,width:11,height:11,rx:2,fill:it.color}));
+    const t=svgEl('text',{x:x+15,y:y,class:'cg-ch-axtext'}); t.textContent=String(it.label).slice(0,16);
+    svg.appendChild(t); x+= 46 + String(it.label).length*3; });
+}
+function downloadChartPng(svg, name){
+  try{
+    const clone=svg.cloneNode(true);
+    clone.setAttribute('xmlns','http://www.w3.org/2000/svg');
+    const dark=getComputedStyle(document.body).backgroundColor;
+    const rect=svgEl('rect',{x:0,y:0,width:640,height:360,fill:dark||'#212121'});
+    clone.insertBefore(rect, clone.firstChild);
+    // inline computed colors so the PNG matches the theme
+    clone.querySelectorAll('.cg-ch-title,.cg-ch-axtext').forEach(e=>e.setAttribute('fill', getComputedStyle(document.body).color));
+    clone.querySelectorAll('.cg-ch-grid').forEach(e=>e.setAttribute('stroke','rgba(128,128,128,.25)'));
+    const xml=new XMLSerializer().serializeToString(clone);
+    const img=new Image();
+    img.onload=()=>{ const cv=document.createElement('canvas'); cv.width=1280; cv.height=720;
+      const ctx=cv.getContext('2d'); ctx.drawImage(img,0,0,1280,720);
+      const a=document.createElement('a'); a.download=(name||'chart').replace(/\s+/g,'-')+'.png';
+      a.href=cv.toDataURL('image/png'); a.click(); };
+    img.src='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(xml)));
+  }catch(e){ showToast('Could not export chart'); }
+}
+
 function renderRunnable(text){
   if(RUN_RE.test(text)) return text.replace(RUN_RE, (_,code)=>'\n```python\n'+code.trim()+'\n```\n');
   const m=text.match(RUN_OPEN_RE);
@@ -2391,7 +2566,7 @@ function renderMessage(m, idx){
         </div>
       </div>`;
     const md=msg.querySelector('.markdown');
-    if(content){ md.innerHTML=renderMarkdown(hideTaskCall(hideConnCall(renderRunnable(content)))); enhance(md); }
+    if(content){ md.innerHTML=renderMarkdown(renderChartMarkers(hideTaskCall(hideConnCall(renderRunnable(content))))); enhance(md); }
     msg.querySelector('.act-copy').onclick=(e)=>copyBtn(e.currentTarget, content);
     if(m.rating==='up') msg.querySelector('.act-good').classList.add('ok');
     if(m.rating==='down') msg.querySelector('.act-bad').classList.add('ok');
@@ -3068,7 +3243,7 @@ async function streamReply(model, hint, depth){
       streamCanvasLive(sp.canvas);
       md.innerHTML=renderMarkdown(sp.chat)+canvasCardHtml(sp.canvas.title, sp.open);
     } else {
-      md.innerHTML=renderMarkdown(hideTaskCall(hideConnCall(renderRunnable(forDisplay(full)))));
+      md.innerHTML=renderMarkdown(renderChartMarkers(hideTaskCall(hideConnCall(renderRunnable(forDisplay(full))))));
     }
     md.classList.add('cursor'); scrollBottom(); raf=null;
   };
@@ -3263,6 +3438,12 @@ function systemContext(c, lite){
   // lite (voice turns): persona + preferences + memory only — the tool
   // instruction blocks below are unusable by voice and only slow the model.
   if(lite) return out;
+  out.push('Interactive charts: when a chart communicates data better than prose, emit EXACTLY one block '
+    +'(and keep surrounding text brief):\n[[chart]]{"type":"bar|line|pie|scatter","title":"…","data":{…}}[[/chart]]\n'
+    +'- bar/line: data={"labels":["A","B"],"datasets":[{"label":"2026","values":[10,20]}]} (multiple datasets allowed)\n'
+    +'- pie: data={"labels":["A","B"],"values":[30,70]}\n'
+    +'- scatter: data={"datasets":[{"label":"pts","points":[{"x":1,"y":2},{"x":3,"y":4}]}]}\n'
+    +'Emit ONLY real, sensible numbers. For heavy computation, prefer the code interpreter if enabled.');
   if(canvasMode || (c&&c.canvas)){
     let s='Canvas mode: when the user asks you to write or revise a document, essay, article, or program, '+
       'put the ENTIRE artifact between these exact markers:\n'+
