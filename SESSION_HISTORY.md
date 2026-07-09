@@ -60,6 +60,15 @@ un-personalized reply has no srcs and no icon, zero console errors. All four
 regression suites green. Deployed to both live dirs; markers served on both
 domains.
 
+**LIVE end-to-end (2026-07-09), 6/6 on chatgpt.comparegpt.io:** minted a
+throwaway exchange user (+key `sk-pwm-Vg-70…cbF8`, id 201) — the live front
+door authenticated it and streamed a REAL GPT-5.5 reply; the book icon
+appeared on that reply, `srcs` carried the seeded memory + custom-instructions
+flag, the popover listed both, and Forget deleted the memory. Zero console
+errors. **All test artifacts pruned:** exchange user 182 + api_key 201 +
+pwm_token_accounts row deleted, 6 sync rows for the key hash purged, and the
+key now returns "Invalid PWM key." on the live endpoint.
+
 ---
 
 ## 2026-07-08 — Parity refresh: June-2026 model picker, pinned chats, table of contents
