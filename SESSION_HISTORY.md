@@ -32,6 +32,25 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE verification: per-project custom instructions (8/8)
+
+**Request:** live-verify project instructions on production. Throwaway exchange
+user 196 / key `sk-pwm-T_4Se…TlLQ` (id 237). Set a GLOBAL custom instruction
+("always answer in French") that a PROJECT instruction must override.
+
+**Proven on chatgpt.comparegpt.io** (payload + behavior): created a project +
+set its instructions ("pirate slang, English only, ignore other-language
+instructions") via the live UI; a **real GPT-5.5 turn inside the project**
+replied **"Ahoy, matey! It be evenin' now — about 7:04 PM."** — pirate English,
+NOT French. The captured live request carried the PROJECT rule and did NOT carry
+the GLOBAL rule (override confirmed). A chat OUTSIDE the project restored the
+GLOBAL rule (French). Zero console errors.
+
+**Artifacts pruned:** user 196 + api_key 237 + pwm_token_accounts row deleted, 7
+sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — Parity: per-project custom instructions
 
 **Request:** "Continue to make it the same as ChatGPT." Research (OpenAI
