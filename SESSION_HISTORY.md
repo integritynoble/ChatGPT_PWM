@@ -32,6 +32,36 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-08 — Memory sources indicator (book icon → what personalized this reply)
+
+**Request:** "Please build the memory sources indicator" — the remaining item
+from the parity refresh. Design brainstormed + approved (spec:
+`docs/superpowers/specs/2026-07-08-memory-sources-design.md`); real behavior
+grounded in OpenAI's May-2026 release notes: book icon below a personalized
+response → the sources used (saved memories, custom instructions, files), each
+with delete/correct controls; sources never appear in shared chats.
+
+**Built** (`web/index.html`): `captureSources(c, lite)` snapshots the
+personalization context a request actually carries (mirrors `systemContext`'s
+rules — GPT persona, custom-instructions flag, enabled memories as `{id,text}`
+pairs, project file names; lite/voice turns skip files) and `streamReply`
+stores it as `srcs` on the reply variant — null when nothing personalizes, so
+plain replies get no icon. A **book icon** joins the assistant action row when
+the shown variant has `srcs` (hidden in shared view); clicking opens a
+"Sources" popover: GPT persona / Custom instructions (Edit in Settings) /
+Saved memories (✕ Forget deletes by stable id if the memory still exists, else
+"no longer saved") / Project files. Share snapshots strip `srcs` from every
+variant before POSTing (sync keeps them — same account, own devices).
+
+**Verified:** headless 13/13 — personalized reply captures `{ci, mem[2]}`,
+book icon visible, popover lists both sources, Forget removes the memory from
+`cg_memories` + marks the row "forgotten", share payload contains no `srcs`,
+un-personalized reply has no srcs and no icon, zero console errors. All four
+regression suites green. Deployed to both live dirs; markers served on both
+domains.
+
+---
+
 ## 2026-07-08 — Parity refresh: June-2026 model picker, pinned chats, table of contents
 
 **Request:** the recurring directive — "ensure the ChatGPT of PWM is the same as

@@ -143,6 +143,16 @@
   #toc-pop{position:fixed;top:102px;right:14px;width:300px;max-width:calc(100vw - 24px);
            max-height:min(60dvh,480px);overflow-y:auto}
   #toc-pop .menu-row{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;width:100%;text-align:left}
+  /* memory sources popover */
+  .src-pop{width:320px;max-width:calc(100vw - 24px);max-height:min(55dvh,440px);overflow-y:auto}
+  .src-row{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:7px 10px;
+           font-size:13px;border-radius:8px}
+  .src-row:hover{background:var(--menu-hover)}
+  .src-row>span:first-child{min-width:0;overflow-wrap:anywhere}
+  .src-kind{color:var(--text-3);flex-shrink:0}
+  .src-gone{color:var(--text-3);font-size:12px;flex-shrink:0}
+  .src-row button[title="Forget"]{color:var(--text-3);flex-shrink:0;padding:2px 6px;border-radius:6px}
+  .src-row button[title="Forget"]:hover{color:var(--danger);background:var(--hover)}
   .plus-item .info{display:flex;flex-direction:column;min-width:0}
   .plus-item .info .t{font-size:14px;font-weight:500}
   .plus-item .info .d{font-size:12px;color:var(--text-3);margin-top:1px}
@@ -2376,6 +2386,7 @@ function renderMessage(m, idx){
           <button class="act act-good" title="Good response"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg></button>
           <button class="act act-bad" title="Bad response"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg></button>
           <button class="act act-read" title="Read aloud"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>
+          <button class="act act-src" title="Sources" style="display:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></button>
           <button class="act act-regen" title="Regenerate"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg></button>
         </div>
       </div>`;
@@ -2387,6 +2398,12 @@ function renderMessage(m, idx){
     msg.querySelector('.act-good').onclick=()=>{ m.rating=m.rating==='up'?null:'up'; touchConvo(activeConvo()); persist(); renderThread(); };
     msg.querySelector('.act-bad').onclick=()=>{ m.rating=m.rating==='down'?null:'down'; touchConvo(activeConvo()); persist(); renderThread(); };
     msg.querySelector('.act-read').onclick=(e)=>readAloud(content, e.currentTarget);
+    const vSrcs=m.variants && m.variants[m.vi] && m.variants[m.vi].srcs;
+    if(vSrcs && !sharedView){
+      const sb=msg.querySelector('.act-src');
+      sb.style.display='';
+      sb.onclick=(e)=>{e.stopPropagation();srcPopover(vSrcs, e.currentTarget);};
+    }
     msg.querySelector('.act-regen').onclick=(e)=>{e.stopPropagation();regenMenu(e.currentTarget, idx);};
     if(pager){
       msg.querySelector('.act-prev').onclick=()=>{ if(m.vi>0){ m.vi--; persist(); renderThread(); } };
@@ -2395,6 +2412,38 @@ function renderMessage(m, idx){
   }
   thread.appendChild(msg);
   return msg;
+}
+
+// "Sources" popover: the personalization context behind a reply, with
+// controls to forget a memory that's outdated (ChatGPT memory-sources parity).
+function srcPopover(srcs, anchor){
+  const open=document.querySelector('.pop.transient'); closeAllPops(); if(open) return;
+  const pop=document.createElement('div'); pop.className='pop transient open src-pop';
+  const r=anchor.getBoundingClientRect();
+  pop.style.top=(r.bottom+6)+'px';
+  pop.style.left=Math.max(8, Math.min(r.left, window.innerWidth-330))+'px';
+  let h='<div class="menu-head">Sources used for this response</div>';
+  if(srcs.gpt) h+=`<div class="src-row"><span class="src-kind">GPT</span><span>${escapeHtml(srcs.gpt)}</span></div>`;
+  if(srcs.ci)  h+=`<div class="src-row"><span class="src-kind">Custom instructions</span><button class="btn btn-sm btn-ghost" data-src-ci>Edit in Settings</button></div>`;
+  if(srcs.mem && srcs.mem.length){
+    h+='<div class="menu-head">Saved memories</div>'+srcs.mem.map(m=>{
+      const still=memories.some(x=>x.id===m.id);
+      return `<div class="src-row"><span>${escapeHtml(m.text)}</span>`
+        +(still?`<button title="Forget" data-src-del="${escapeHtml(m.id)}">✕</button>`
+               :`<span class="src-gone">no longer saved</span>`)+`</div>`;
+    }).join('');
+  }
+  if(srcs.files && srcs.files.length)
+    h+='<div class="menu-head">Project files</div>'+srcs.files.map(f=>`<div class="src-row"><span>${escapeHtml(f)}</span></div>`).join('');
+  pop.innerHTML=h;
+  pop.addEventListener('click',ev=>ev.stopPropagation());
+  document.body.appendChild(pop);
+  pop.querySelectorAll('[data-src-del]').forEach(b=>{
+    b.onclick=()=>{ deleteMemory(b.dataset.srcDel); renderMemoryList();
+      b.outerHTML='<span class="src-gone">forgotten</span>'; showToast('Memory deleted'); };
+  });
+  const ciBtn=pop.querySelector('[data-src-ci]');
+  if(ciBtn) ciBtn.onclick=()=>{ closeAllPops(); openSettings(); };
 }
 
 function copyBtn(btn, text){
@@ -2848,9 +2897,13 @@ async function shareChat(){
   const c=activeConvo(); if(!c||!c.messages.length) return;
   if(!getKey()){ showToast('Log in to create a share link'); openKeyModal(); return; }
   try{
+    // Sources are private to the owner's account — never in a public snapshot.
+    const snap=stripConvoForSync(c);
+    snap.messages=snap.messages.map(m=> m.variants
+      ? {...m, variants:m.variants.map(v=>{ const {srcs, ...rest}=v; return rest; })} : m);
     const resp=await fetch('/api/share',{method:'POST',
       headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
-      body:JSON.stringify({convo:stripConvoForSync(c)})});
+      body:JSON.stringify({convo:snap})});
     if(!resp.ok){ const e=await resp.json().catch(()=>({})); throw new Error(e.detail||'Could not create link'); }
     const st=await resp.json();
     currentShareId=st.id;
@@ -2991,6 +3044,7 @@ async function streamReply(model, hint, depth){
   // Voice turns take the fast lane: low-effort model, no web search / image gen /
   // deep research, and a trimmed context — latency to the first spoken word rules.
   const voiceTurn=voiceActive;
+  const reqSrcs=captureSources(c, voiceTurn);   // what personalizes THIS reply
   systemContext(c, voiceTurn).forEach(s=>sendMsgs.unshift({role:'system', content:s}));
   if(hint) sendMsgs.push({role:'user', content:hint});  // transient steering, not stored
 
@@ -3073,6 +3127,7 @@ async function streamReply(model, hint, depth){
       const cvSp=splitCanvas(full);
       if(cvSp.canvas && cvSp.canvas.body.trim()){ commitCanvas(c, cvSp.canvas); openCanvasPanel(); }
       target.variants[target.vi].content=full; target.variants[target.vi].ts=now();
+      if(reqSrcs) target.variants[target.vi].srcs=reqSrcs;
       if(sources.length) target.variants[target.vi].sources=sources;
       if(thinking.trim()) target.variants[target.vi].reasoning=thinking;
       if(genImage){ target.variants[target.vi].image=genImage; librarySave(genImage, lastUserText(c), c.id); }
@@ -3361,6 +3416,18 @@ function graftHeavyFields(inc, loc){
   return inc;
 }
 // Strip bulky payloads (data-URL images) before shipping a chat to the server.
+// Snapshot of the personalization context a request carries — powers the
+// "sources" book icon on the reply (ChatGPT's memory-sources feature).
+// Mirrors systemContext()'s inclusion rules; null when nothing personalizes.
+function captureSources(c, lite){
+  const s={};
+  if(c && c.gptId){ const g=gptById(c.gptId); if(g && g.name) s.gpt=g.name; }
+  if(customInstructions()) s.ci=true;
+  if(memoryEnabled() && memories.length) s.mem=memories.map(m=>({id:m.id, text:m.text}));
+  if(!lite && c && c.projectId && projectFilesCache[c.projectId] && projectFilesCache[c.projectId].length)
+    s.files=projectFilesCache[c.projectId].map(f=>f.name);
+  return (s.gpt||s.ci||s.mem||s.files) ? s : null;
+}
 function stripConvoForSync(c){
   return {...c, messages:(c.messages||[]).map(m=>{
     let mm=m;
