@@ -32,6 +32,45 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — Improvement sprint: charts, accessibility, reliability, + optional API key
+
+**Request:** "Please continue to improve it" → chose all three of: interactive
+charts, accessibility, reliability. Mid-sprint addition: "provide PWM API key
+choice — if a user provides one, cost comes from that key directly."
+
+**1. Interactive charts** (`a167132`) — ChatGPT-parity June-2026 charts. The
+model emits `[[chart]]{type,title,data}[[/chart]]`; the client renders an inline
+interactive **SVG** — bar (grouped), line (multi-series), pie, scatter — with
+hover tooltips, axis ticks/gridlines, legend, and Download-PNG. Purely
+client-side; the marker lives in message content so charts persist and render in
+shared views. Theme-aware. Concise system-context instruction; voice (lite)
+turns skip it. Verified 10/10 + pie/line/scatter render checks + screenshot.
+
+**2. Accessibility & keyboard UX** (`56250a2`) — modals (settings/voice/share/
+lightbox/shortcuts) get `role=dialog`+`aria-modal`, focus-in on open, Tab focus
+trap, focus restore on close; thread is `role=log` with a visually-hidden
+`aria-live` region announcing "Generating…"/"Response ready."; `prefers-reduced-
+motion` collapses animations; skip-link, `:focus-visible` ring, state-aware send
+aria-label. Verified 11/11 (incl. no unlabeled icon buttons).
+
+**3. Optional PWM API key** (`e33a534`) — bring-your-own-key restored as an
+explicit choice: login modal gains an "or / Use a PWM API key" section (validated
+sk-pwm- field), Settings gets the advanced key field back. The key rides as
+X-PWM-Key so usage is billed directly to it (billing already routes to getKey() —
+no backend change). Verified 12/12 (incl. chat request carries the provided key).
+
+**4. Reliability & error UX** (`47a2f67`) — auto-retry a turn ONCE on a transient
+no-content failure (dropped stream via clean-EOF or throw, or 5xx), silently
+recovering; NEVER retries user-abort/auth/4xx(429/402)/offline. Offline banner +
+send-blocked-with-toast + reconnect. Friendlier 429/5xx/offline messages.
+Verified 10/10.
+
+All work TDD'd; full cross-suite regression green each step (voice read-aloud
+test is timing-flaky under parallel load — passes in isolation). Deployed to both
+live dirs after each feature; all markers served on both domains.
+
+---
+
 ## 2026-07-09 — LIVE share-links verification (15/15 on chatgpt.comparegpt.io)
 
 **Request:** "Please test the share links on the live site." Throwaway exchange
