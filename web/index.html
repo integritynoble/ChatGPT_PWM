@@ -163,6 +163,9 @@
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   :focus-visible{outline:2px solid #7eb6ff;outline-offset:2px}
   :root[data-theme="light"] :focus-visible{outline-color:#0b62d6}
+  .login-or{display:flex;align-items:center;text-align:center;color:var(--text-3);font-size:12px;margin:14px 0 8px}
+  .login-or::before,.login-or::after{content:"";flex:1;border-top:1px solid var(--border)}
+  .login-or span{padding:0 12px}
   #skip-link{position:absolute;left:8px;top:-40px;z-index:500;background:var(--accent);color:var(--accent-fg);
              padding:8px 14px;border-radius:8px;transition:top .15s}
   #skip-link:focus{top:8px}
@@ -944,6 +947,13 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
         Connect wallet
       </button>
+      <div class="login-or"><span>or</span></div>
+      <button class="btn btn-ghost btn-block" id="apikey-toggle" onclick="toggleApiKeyEntry()" aria-expanded="false">Use a PWM API key</button>
+      <div id="apikey-entry" style="display:none">
+        <label for="login-key-input" style="margin-top:6px">PWM API key <span style="color:var(--text-3);font-weight:400">— usage is billed directly to this key</span></label>
+        <input id="login-key-input" type="password" placeholder="sk-pwm-…" autocomplete="off" spellcheck="false" aria-label="PWM API key">
+        <button class="btn btn-primary btn-block" style="margin-top:8px" onclick="useApiKey()">Use this key</button>
+      </div>
     </div>
 
     <div id="settings-extra" style="display:none">
@@ -1000,7 +1010,9 @@
       <label style="margin-top:16px">Shared links</label>
       <div id="shared-links" class="mem-list"></div>
 
-      <div class="balance" id="balance-line" style="margin-top:16px"></div>
+      <label for="key-input" style="margin-top:16px">PWM API key <span style="color:var(--text-3);font-weight:400">— set automatically when you sign in; usage is billed to this key. Paste your own to bill it directly.</span></label>
+      <input id="key-input" type="password" placeholder="sk-pwm-…" autocomplete="off" spellcheck="false" aria-label="PWM API key">
+      <div class="balance" id="balance-line" style="margin-top:10px"></div>
 
       <div class="danger-zone">
         <span>Delete all chats on this device</span>
@@ -3385,7 +3397,7 @@ function openSettingsModal(){
   $('#settings-save-btn').style.display = full ? 'inline-flex' : 'none';  // login is SSO-only — nothing to save
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
-  if(full){ $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; renderMemoryList(); renderArchivedList(); renderSharedLinks(); renderTasksList(); refreshBalance(); }
+  if(full){ if($('#key-input')) $('#key-input').value=getKey(); $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; renderMemoryList(); renderArchivedList(); renderSharedLinks(); renderTasksList(); refreshBalance(); }
   applyTheme();
   $('#settings-overlay').classList.add('open');
   if(!full){ const b=$('#login-portals button'); if(b) b.focus(); }
@@ -3515,17 +3527,39 @@ function systemContext(c, lite){
   }
   return out;
 }
-// Save full-Settings edits (custom instructions). The key itself is account-managed
-// only — minted by the portal on sign-in and captured from the redirect; there is
-// no manual key entry anywhere in the UI.
+// Bring-your-own PWM API key: an alternative to account sign-in. The stored key
+// is sent as X-PWM-Key on every request, so usage is billed directly to it.
+function toggleApiKeyEntry(){
+  const box=$('#apikey-entry'), btn=$('#apikey-toggle');
+  const show=box.style.display==='none';
+  box.style.display=show?'block':'none';
+  btn.setAttribute('aria-expanded', show?'true':'false');
+  if(show){ const i=$('#login-key-input'); if(i) i.focus(); }
+}
+function useApiKey(){
+  const i=$('#login-key-input'); const k=(i&&i.value||'').trim();
+  if(!/^sk-pwm-/.test(k)){ showToast('Enter a valid PWM API key (starts with sk-pwm-)'); if(i) i.focus(); return; }
+  localStorage.setItem('cg_pwm_key', k);
+  updateAccount(); closeSettings(); showToast('Using your PWM API key');
+  syncNow(); refreshAccountHead();
+}
+// Save full-Settings edits (custom instructions + optional advanced key override).
 function saveKey(){
+  let keyChanged=false;
   if(settingsMode==='full'){
     const a=($('#ci-about')?$('#ci-about').value:'').trim(), st=($('#ci-style')?$('#ci-style').value:'').trim();
     a ? localStorage.setItem('cg_ci_about',a) : localStorage.removeItem('cg_ci_about');
     st ? localStorage.setItem('cg_ci_style',st) : localStorage.removeItem('cg_ci_style');
     localStorage.setItem('cg_ci_ts', String(now()));
+    // Advanced: a pasted PWM key overrides the account key; billing goes to it.
+    const ki=$('#key-input'), k=(ki&&ki.value||'').trim();
+    if(k && k!==getKey()){
+      if(!/^sk-pwm-/.test(k)){ showToast('Enter a valid PWM API key (starts with sk-pwm-)'); return; }
+      localStorage.setItem('cg_pwm_key', k); keyChanged=true;
+    }
   }
   updateAccount(); closeSettings();
+  if(keyChanged){ showToast('PWM API key updated'); syncNow(); refreshAccountHead(); }
 }
 function setDefaultModel(id){ pickModel(id); }
 function deleteAllChats(){
