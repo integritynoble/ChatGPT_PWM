@@ -32,6 +32,30 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE group-chat verification (two-browser, 10/10 on chatgpt.comparegpt.io)
+
+**Request:** "Please test the group chats on the live site." Two throwaway
+exchange users — Alice (id 186, key `sk-pwm-uTsCq…FqA8`) and Bob (id 185, key
+`sk-pwm-_wYnZ…_H_c`) — driven in two separate browser contexts.
+
+**Verified end-to-end on the real site:** Alice created a live group (server
+minted invite token); Bob opened `/g/<token>`, saw the join screen with the
+group title, and joined; Bob saw Alice's earlier message on load; Alice
+received Bob's message and the "Bob joined" system line via the 2.5 s poll;
+**`@ChatGPT what is 6×7` returned a real GPT-5.5 "42" into the shared thread,
+delivered to BOTH members** under the server's claim lock; Bob left → Alice saw
+the "Bob left" system line. Zero console errors on either side. (The leave
+step needed a second run — `leaveGroup()` has a `confirm()` that headless
+auto-dismisses; accepting the dialog, it passed. App behavior correct; first
+run was a test-harness artifact.)
+
+**Artifacts pruned:** both exchange users (185/186) + their api_keys +
+pwm_token_accounts rows deleted; 2 test groups + all group_members/group_msgs +
+any items purged from the shared sync DB (22 rows); both keys now return
+"Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — LIVE mobile verification (12/12 on chatgpt.comparegpt.io)
 
 **Request:** "Please test the mobile version on the live site." Throwaway
