@@ -983,10 +983,26 @@
         <option value="browser">Browser voice (basic)</option>
       </select>
 
-      <label for="ci-about">Customize ChatGPT — what should ChatGPT know about you?</label>
-      <textarea id="ci-about" class="ci-field" rows="3" placeholder="e.g. I'm a physicist working on world models; prefer SI units." spellcheck="false"></textarea>
+      <label style="margin-top:8px;font-weight:600">Customize ChatGPT</label>
+      <label for="ci-nickname">What should ChatGPT call you?</label>
+      <input id="ci-nickname" class="ci-field" placeholder="Nickname" maxlength="60" spellcheck="false" autocomplete="off">
+      <label for="ci-occupation">What do you do?</label>
+      <input id="ci-occupation" class="ci-field" placeholder="Your work, studies, or role" maxlength="120" spellcheck="false" autocomplete="off">
+      <label for="ci-tone">What base style should ChatGPT have?</label>
+      <select id="ci-tone" class="ci-field">
+        <option value="">Default</option>
+        <option value="Professional">Professional</option>
+        <option value="Friendly">Friendly</option>
+        <option value="Candid">Candid</option>
+        <option value="Quirky">Quirky</option>
+        <option value="Efficient">Efficient</option>
+        <option value="Nerdy">Nerdy</option>
+        <option value="Cynical">Cynical</option>
+      </select>
+      <label for="ci-about">Anything else ChatGPT should know about you?</label>
+      <textarea id="ci-about" class="ci-field" rows="3" maxlength="1500" placeholder="e.g. I'm a physicist working on world models; prefer SI units." spellcheck="false"></textarea>
       <label for="ci-style">How would you like ChatGPT to respond?</label>
-      <textarea id="ci-style" class="ci-field" rows="3" placeholder="e.g. Be concise and direct. Use headings and code blocks. Skip the pleasantries." spellcheck="false"></textarea>
+      <textarea id="ci-style" class="ci-field" rows="3" maxlength="1500" placeholder="e.g. Be concise and direct. Use headings and code blocks. Skip the pleasantries." spellcheck="false"></textarea>
 
       <div class="mem-head">
         <label style="margin:0">Memory</label>
@@ -3424,21 +3440,39 @@ function openSettingsModal(){
   $('#settings-save-btn').style.display = full ? 'inline-flex' : 'none';  // login is SSO-only — nothing to save
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
-  if(full){ if($('#key-input')) $('#key-input').value=getKey(); $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; renderMemoryList(); renderArchivedList(); renderSharedLinks(); renderTasksList(); refreshBalance(); }
+  if(full){ if($('#key-input')) $('#key-input').value=getKey(); $('#ci-nickname').value=localStorage.getItem('cg_ci_nickname')||''; $('#ci-occupation').value=localStorage.getItem('cg_ci_occupation')||''; $('#ci-tone').value=localStorage.getItem('cg_ci_tone')||''; $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; renderMemoryList(); renderArchivedList(); renderSharedLinks(); renderTasksList(); refreshBalance(); }
   applyTheme();
   $('#settings-overlay').classList.add('open');
   if(!full){ const b=$('#login-portals button'); if(b) b.focus(); }
 }
 function closeSettings(){ $('#settings-overlay').classList.remove('open'); }
 // Build the "custom instructions" system message from the saved fields (or '' if none).
+// ChatGPT-style structured custom instructions: nickname, occupation, a base
+// tone/personality, "about you", and response style — assembled into one system
+// message. Backward-compatible with the old about/style-only setup.
+const CI_TONES={
+  Professional:'Maintain a professional, polished tone.',
+  Friendly:'Be warm, friendly, and encouraging.',
+  Candid:'Be direct and candid; skip hedging and flattery.',
+  Quirky:'Be playful and a little quirky, with personality.',
+  Efficient:'Be brief and efficient; minimal preamble, straight to the point.',
+  Nerdy:'Be enthusiastic and detailed, happy to go deep on the technical side.',
+  Cynical:'Be dryly witty and a bit cynical, while still genuinely helpful.'
+};
 function customInstructions(){
+  const nick=(localStorage.getItem('cg_ci_nickname')||'').trim();
+  const occ=(localStorage.getItem('cg_ci_occupation')||'').trim();
+  const tone=(localStorage.getItem('cg_ci_tone')||'').trim();
   const about=(localStorage.getItem('cg_ci_about')||'').trim();
   const style=(localStorage.getItem('cg_ci_style')||'').trim();
-  if(!about && !style) return '';
-  let s='';
-  if(about) s+='About the user:\n'+about+'\n\n';
-  if(style) s+='How the user wants you to respond:\n'+style;
-  return s.trim();
+  if(!nick && !occ && !tone && !about && !style) return '';
+  const parts=[];
+  if(nick) parts.push('The user prefers to be called "'+nick+'". Address them by that name when natural.');
+  if(occ) parts.push('The user’s occupation / role: '+occ+'.');
+  if(tone && CI_TONES[tone]) parts.push('Base style and tone: '+CI_TONES[tone]);
+  if(about) parts.push('About the user:\n'+about);
+  if(style) parts.push('How the user wants you to respond:\n'+style);
+  return parts.join('\n\n').trim();
 }
 
 // ── Cross-chat memory ─────────────────────────────────────────────────────
@@ -3576,9 +3610,13 @@ function useApiKey(){
 function saveKey(){
   let keyChanged=false;
   if(settingsMode==='full'){
-    const a=($('#ci-about')?$('#ci-about').value:'').trim(), st=($('#ci-style')?$('#ci-style').value:'').trim();
-    a ? localStorage.setItem('cg_ci_about',a) : localStorage.removeItem('cg_ci_about');
-    st ? localStorage.setItem('cg_ci_style',st) : localStorage.removeItem('cg_ci_style');
+    const setOrClear=(id,key)=>{ const el=$(id); const v=(el&&el.value||'').trim();
+      v ? localStorage.setItem(key,v) : localStorage.removeItem(key); };
+    setOrClear('#ci-nickname','cg_ci_nickname');
+    setOrClear('#ci-occupation','cg_ci_occupation');
+    setOrClear('#ci-tone','cg_ci_tone');
+    setOrClear('#ci-about','cg_ci_about');
+    setOrClear('#ci-style','cg_ci_style');
     localStorage.setItem('cg_ci_ts', String(now()));
     // Advanced: a pasted PWM key overrides the account key; billing goes to it.
     const ki=$('#key-input'), k=(ki&&ki.value||'').trim();
@@ -3708,7 +3746,9 @@ function collectSyncItems(){
   items.push({kind:'kv', id:'memories', ts:+localStorage.getItem('cg_mem_ts')||0,
     data:JSON.stringify({list:memories, off:localStorage.getItem('cg_memory_off')==='1'})});
   items.push({kind:'kv', id:'ci', ts:+localStorage.getItem('cg_ci_ts')||0,
-    data:JSON.stringify({about:localStorage.getItem('cg_ci_about')||'', style:localStorage.getItem('cg_ci_style')||''})});
+    data:JSON.stringify({about:localStorage.getItem('cg_ci_about')||'', style:localStorage.getItem('cg_ci_style')||'',
+      nickname:localStorage.getItem('cg_ci_nickname')||'', occupation:localStorage.getItem('cg_ci_occupation')||'',
+      tone:localStorage.getItem('cg_ci_tone')||''})});
   tombstones().forEach(t=>items.push({kind:t.kind, id:t.id, ts:t.ts, deleted:1}));
   return items;
 }
@@ -3757,8 +3797,9 @@ function applySync(items){
     const ci=kv('ci');
     if(ci && ci.ts>(+localStorage.getItem('cg_ci_ts')||0)){
       const d=parse(ci)||{};
-      d.about ? localStorage.setItem('cg_ci_about', d.about) : localStorage.removeItem('cg_ci_about');
-      d.style ? localStorage.setItem('cg_ci_style', d.style) : localStorage.removeItem('cg_ci_style');
+      const sc=(v,key)=> v ? localStorage.setItem(key,v) : localStorage.removeItem(key);
+      sc(d.about,'cg_ci_about'); sc(d.style,'cg_ci_style');
+      sc(d.nickname,'cg_ci_nickname'); sc(d.occupation,'cg_ci_occupation'); sc(d.tone,'cg_ci_tone');
       localStorage.setItem('cg_ci_ts', String(ci.ts));
     }
     persist(); saveProjects(); saveGpts();
