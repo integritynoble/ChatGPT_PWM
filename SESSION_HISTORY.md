@@ -32,6 +32,31 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — Parity: Record mode (transcribe + summarize a meeting/voice note)
+
+**Request:** "Continue parity." Research (gend.co feature roundup / release
+notes): ChatGPT's **Record Mode** captures meetings/voice notes, transcribes,
+and turns them into actionable outputs (summary + action items). We had
+dictation + voice mode but no record-and-summarize.
+
+**Built** (`web/index.html`): a **Record** row in the + menu starts a continuous
+`SpeechRecognition` capture with a fixed **recording bar** (pulsing red dot,
+MM:SS timer, live running transcript, Cancel / Stop & summarize). The recognizer
+self-restarts on `onend` (keepalive) so long sessions don't drop. On **Stop**,
+the raw transcript is pushed as a "📝 Recording transcript" user turn and
+`streamReply` runs with `RECORD_HINT` → the model returns structured notes: a
+one-line **Summary**, **Key points** bullets, and an **Action items** checklist
+(`- [ ]`). **Cancel** discards silently. Reuses the existing speech infra; gated
+on a key + mic support (Chrome/Edge).
+
+**Verified:** headless 11/11 — Record row present, bar opens, transcript
+accumulates live, timer runs, Stop creates the transcript turn + sends the
+summarize hint + renders structured notes, Cancel records nothing/closes the
+bar, zero console errors. canvas-html/mobile-menu/voice/followups suites green.
+Screenshot: the recording bar mid-capture. Live on both domains.
+
+---
+
 ## 2026-07-09 — LIVE verification: Canvas HTML preview (8/8)
 
 **Request:** live-verify the HTML canvas preview on production. Throwaway exchange
