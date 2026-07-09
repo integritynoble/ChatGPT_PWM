@@ -849,6 +849,10 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
             Code
           </button>
+          <button type="button" class="tool-pill" id="study-toggle" title="Study and learn" onclick="toggleStudyMode()" style="display:none">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+            Study
+          </button>
         </div>
         <div id="disclaimer">ChatGPT can make mistakes. Check important info.</div>
       </div>
@@ -930,6 +934,11 @@
   <button class="menu-row plus-item" id="pm-canvas" data-search="canvas write code document collaborate draft essay edit" onclick="plusToggle('canvas')">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
     <span class="info"><span class="t">Canvas</span><span class="d">Collaborate on writing and code</span></span>
+    <svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+  </button>
+  <button class="menu-row plus-item" id="pm-study" data-search="study mode learn tutor socratic step by step teach understand practice homework" onclick="plusToggle('study')">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+    <span class="info"><span class="t">Study and learn</span><span class="d">Work through problems step by step</span></span>
     <svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
   </button>
   <button class="menu-row plus-item" id="pm-deep" data-search="deep research multi-step analysis report investigate sources" onclick="plusToggle('deep')">
@@ -1657,6 +1666,7 @@ function delConvo(id){
 function loadConvo(id){
   exitFeature(); attachments=[]; renderAttachments();
   activeId=id; const c=convos.find(c=>c.id===id); if(!c) return;
+  studyMode=!!c.studyOn; syncToolUI();   // reflect this chat's Study state in the pill
   pendingGptId=null; closeCanvas(); renderThread(); renderChatList(); setLanding(); updateGptContext(); scrollBottom(true);
   if(c.projectId) ensureProjectFiles(c.projectId);
   if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');
@@ -1665,6 +1675,7 @@ function loadConvo(id){
 function newChat(){
   exitFeature(); attachments=[]; renderAttachments();
   activeId=null; pendingGptId=null; closeCanvas(); renderThread(); renderChatList(); setLanding(); updateGptContext();
+  studyMode=false; syncToolUI();
   input.value=''; autosize(input); input.focus();
   if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');
 }
@@ -1700,6 +1711,8 @@ function syncToolUI(){
   $('#pm-canvas') && $('#pm-canvas').classList.toggle('on', canvasMode);
   const cot=$('#code-toggle'); if(cot){ cot.style.display = codeInterp ? '' : 'none'; cot.classList.toggle('on', codeInterp); }
   $('#pm-code') && $('#pm-code').classList.toggle('on', codeInterp);
+  const sst=$('#study-toggle'); if(sst){ sst.style.display = studyMode ? '' : 'none'; sst.classList.toggle('on', studyMode); }
+  $('#pm-study') && $('#pm-study').classList.toggle('on', studyMode);
   $('#pm-gh')  && $('#pm-gh').classList.toggle('on', connEnabled('github'));
   $('#pm-fin') && $('#pm-fin').classList.toggle('on', connEnabled('finance'));
 }
@@ -1707,7 +1720,7 @@ function toggleWebSearch(){ webSearch=!webSearch; if(webSearch){imageGen=false;d
 function toggleImageGen(){ imageGen=!imageGen; if(imageGen){webSearch=false;deepResearch=false;} syncToolUI(); input.focus(); }
 function toggleDeepResearch(){ deepResearch=!deepResearch; if(deepResearch){imageGen=false;webSearch=false;} syncToolUI(); input.focus(); }
 // + menu rows route to the same toggles (menu stays open so the checkmark is visible).
-function plusToggle(kind){ if(kind==='image') toggleImageGen(); else if(kind==='search') toggleWebSearch(); else if(kind==='deep') toggleDeepResearch(); else if(kind==='canvas') toggleCanvasMode(); else if(kind==='code') toggleCodeInterp(); else if(kind==='gh') toggleConnector('github'); else if(kind==='fin') toggleConnector('finance'); }
+function plusToggle(kind){ if(kind==='image') toggleImageGen(); else if(kind==='search') toggleWebSearch(); else if(kind==='deep') toggleDeepResearch(); else if(kind==='canvas') toggleCanvasMode(); else if(kind==='code') toggleCodeInterp(); else if(kind==='study') toggleStudyMode(); else if(kind==='gh') toggleConnector('github'); else if(kind==='fin') toggleConnector('finance'); }
 // Connectors are global on/off switches (persisted per browser, never synced).
 function connEnabled(s){ return localStorage.getItem('cg_conn_'+s)==='1'; }
 function setConn(s,on){ localStorage.setItem('cg_conn_'+s, on?'1':'0'); syncToolUI(); }
@@ -2078,6 +2091,7 @@ function deleteGptFromUI(){
 // shows a compact card in the chat instead.
 let canvasMode=false;          // + menu toggle: ask the model to use canvas markers
 let codeInterp=false;          // + menu toggle: code interpreter (run Python)
+let studyMode=false;           // + menu toggle: Study mode (Socratic tutor)
 let cvSaveTimer=null;
 
 const CANVAS_OPEN_RE=/\[\[canvas:?\s*([^\]]*)\]\]\r?\n?/i;
@@ -2169,6 +2183,9 @@ function cvQuick(prompt){
 }
 function toggleCanvasMode(){ canvasMode=!canvasMode; if(canvasMode) codeInterp=false; syncToolUI(); input.focus(); }
 function toggleCodeInterp(){ codeInterp=!codeInterp; if(codeInterp){canvasMode=false;imageGen=false;webSearch=false;deepResearch=false;} syncToolUI(); input.focus(); }
+function toggleStudyMode(){ studyMode=!studyMode; const c=activeConvo(); if(c) c.studyOn=studyMode;
+  if(studyMode){ imageGen=false; } syncToolUI(); if(c) persist(); input.focus(); }
+function studyActive(c){ return studyMode || !!(c && c.studyOn); }
 // Commit a completed canvas block from a model reply into the conversation.
 function commitCanvas(c, cvData){
   if(!c.canvas) c.canvas={title:'',lang:'',versions:[],vi:0};
@@ -3275,6 +3292,7 @@ async function onSend(e){
   input.value=''; autosize(input);
   const c=ensureConvo();
   if(codeInterp) c.ciOn=true;   // keep code interpreter armed for this conversation
+  if(studyMode) c.studyOn=true; // keep Study mode armed for this conversation
   ciStopped=false;
   if(c.projectId && !projectFilesCache[c.projectId]) await ensureProjectFiles(c.projectId);
   const um={role:'user',content:text,ts:now()}; if(atts.length) um.atts=atts;
@@ -3665,6 +3683,16 @@ function systemContext(c, lite){
       +'matplotlib (Agg), scipy, and sympy; NO internet access; ~30s time limit. To show a chart, save it with '
       +'plt.savefig("/work/out/plot.png") — saved images are displayed to the user automatically. '
       +'Print anything you want to see. Use it for calculations, data analysis, and charts; answer directly when code is not needed.');
+  }
+  if(studyActive(c)){
+    out.push('STUDY MODE — you are a patient Socratic tutor, not an answer machine. Help the user LEARN, do not just '
+      +'give the final answer. Rules: (1) First gauge what they already know and what they are trying to do, asking a '
+      +'brief question if unclear. (2) Work through the problem step by step, ONE step at a time, and after each step '
+      +'ask a short guiding question to check understanding before moving on. (3) Never dump the full solution up front; '
+      +'if they are stuck, give a hint or a smaller sub-step, not the answer. (4) When they answer, give specific '
+      +'feedback and gently correct mistakes. (5) Calibrate depth and vocabulary to their apparent level. (6) End with a '
+      +'quick check-for-understanding question or a small practice problem. Be warm and encouraging. If the user '
+      +'explicitly says they just want the answer, you may give it, then offer to walk through the reasoning.');
   }
   return out;
 }
