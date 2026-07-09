@@ -32,6 +32,30 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — Model picker: GPT-5.6 Sol/Terra/Luna as visible tier choices
+
+**Request:** "Add Sol/Terra/Luna as visible choices in the picker" (follow-up to
+the 5.6 upgrade). ChatGPT Plus lets users choose among the tiers.
+
+**Built** (`web/index.html`): the picker now lists **GPT-5.6 Sol** (most capable),
+**GPT-5.6 Terra** (fast/balanced), **GPT-5.6 Luna** (lightweight) — model ids are
+the real backend slugs; default + migration land on Sol; header shows the tier
+name. Special paths unchanged: voice still forces `gpt-5.5-instant` and deep
+research `gpt-5.5-thinking`, which the backend maps to Terra-low / Sol-high — so
+the fast lane and high-reasoning path keep working without touching that code.
+**Auto-switch to Thinking** now escalates **Terra → Sol** for complex questions
+(logic + note updated). Regenerate menu, Settings default-model select, and sync
+all iterate MODELS, so they picked up the tiers automatically.
+
+**Verified:** headless — auto-switch (Terra+complex→Sol, Terra+simple stays,
+disabled stays, explicit Sol respected), voice fast-path (still forces the fast
+alias; typed keeps the selected tier), study/followups/charts/memory suites
+green. **LIVE 8/8** on chatgpt.comparegpt.io: picker lists Sol/Terra/Luna, header
+shows the tier, and selecting each tier routes a real turn to its exact slug
+(`gpt-5.6-terra`/`-luna`/`-sol`) with real generation. Test key pruned.
+
+---
+
 ## 2026-07-09 — GPT-5.6 upgrade (Sol/Terra/Luna) — the app now runs on 5.6
 
 **Request:** "Continue parity; check if ChatGPT 5.6 is available." It went **GA
