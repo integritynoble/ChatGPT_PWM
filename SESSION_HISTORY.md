@@ -32,6 +32,25 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE verification: Canvas HTML preview (8/8)
+
+**Request:** live-verify the HTML canvas preview on production. Throwaway exchange
+user 202 / key `sk-pwm-hzSEY…ykDU` (id 264).
+
+**Proven on chatgpt.comparegpt.io:** armed Canvas via the + menu, asked for a
+counter web page. A **real GPT-5.6 (Sol) turn built a "Click Counter" HTML app**
+that rendered live in a sandboxed iframe (`allow-scripts`, no `allow-same-origin`).
+**Decisive interactivity proof:** clicking the button inside the iframe twice
+changed the display "0" → "2" — the app genuinely runs. The code/preview toggle
+flipped to source and back. No app console errors (sandbox storage errors
+excluded — that boundary is working). Screenshot: the styled counter card in the
+canvas panel, header "ChatGPT Sol".
+
+**Artifacts pruned:** user 202 + api_key 264 + pwm_token_accounts row deleted, 6
+sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — Canvas: live HTML preview (ChatGPT Canvas / Sites parity)
 
 **Request:** "Continue parity." Today's OpenAI launch was mostly infra-bound
