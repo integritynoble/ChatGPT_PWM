@@ -32,6 +32,33 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — GPT-5.6 upgrade (Sol/Terra/Luna) — the app now runs on 5.6
+
+**Request:** "Continue parity; check if ChatGPT 5.6 is available." It went **GA
+in ChatGPT consumer today (2026-07-09)** — new naming: the number is the
+generation, **Sol** (top tier), **Terra** (free default), **Luna** (efficient),
+with effort levels layered on top.
+
+**Backend probe (rigorous, with control):** against the real subscription,
+`gpt-5.6-sol`/`-terra`/`-luna` all generate; bare `gpt-5.6` and `gpt-5.99-bogus`
+both 400 "not supported" — confirming the upstream validates names and genuinely
+serves the 5.6 tiers.
+
+**Upgraded** (`web/openai_subscription.py`, both backends restarted): the
+simplified picker's effort levels now map onto 5.6 tiers with the **frontend ids
+unchanged** (no churn to stored prefs / sync / code): Instant → `gpt-5.6-terra`
+(fast), Medium → `gpt-5.6-sol`, High → `gpt-5.6-sol` with high reasoning effort.
+`DEFAULT_MODEL` → Sol (so group chats + scheduled tasks run 5.6 too). Legacy
+5.4/5.5 aliases resolve to 5.6 tiers for older synced prefs. Frontend needs no
+change — the header shows the effort level ("Medium"), not a version string.
+
+**Verified:** unit map (each level → correct slug + effort: Instant→Terra/low,
+Medium→Sol/default, High→Sol/high) + real generation on each of the three levels
+through the **live front door** on chatgpt.comparegpt.io ("FIVESIX-OK" streamed
+for all three). Both backends + both domains healthy. Test key pruned.
+
+---
+
 ## 2026-07-09 — LIVE verification: Auto-switch to Thinking (6/6)
 
 **Request:** live-verify auto-switch on production. Throwaway exchange user 199 /
