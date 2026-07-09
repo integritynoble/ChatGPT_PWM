@@ -32,6 +32,32 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — Parity: structured Custom Instructions (nickname/occupation/tone)
+
+**Request:** "Continue to make it the same as ChatGPT." Research (OpenAI help
+center / academy): 2026 Custom Instructions are **structured** — "What should
+ChatGPT call you?" (nickname), "What do you do?" (occupation), a base
+style/tone personality (Default/Professional/Friendly/Candid/Quirky/Efficient/
+Nerdy/Cynical), plus free-text. We had only two free boxes.
+
+**Built** (`web/index.html`): Settings → Customize ChatGPT now has nickname +
+occupation inputs, a tone `<select>`, and the existing "anything else about you"
+/ "how to respond" textareas (1500-char caps). `customInstructions()` assembles
+all five into one system message — each tone maps to a concise instruction via
+`CI_TONES`. Fields hydrate on open, persist via `saveKey` (generic
+set-or-clear), and sync (kv/ci payload gains nickname/occupation/tone; applySync
+restores them). Backward-compatible with the old about/style setup; still
+applies in temporary chats (custom instructions are the one thing temp keeps).
+
+**Verified:** headless 16/16 — all five fields present, 8-option tone dropdown,
+persist, `customInstructions()` includes nickname/occupation/tone-text/about/
+style, structured CI reaches the backend as a system message, sync round-trips
+the new keys, clear-tone-to-Default removes it. Screenshot confirms the
+ChatGPT-style layout. temp-chat/memory-sources/api-key/a11y suites green. Live
+on both domains.
+
+---
+
 ## 2026-07-09 — LIVE verification: Temporary Chat (9/9 on chatgpt.comparegpt.io)
 
 **Request:** live-verify Temporary Chat on production. Throwaway exchange user 190
