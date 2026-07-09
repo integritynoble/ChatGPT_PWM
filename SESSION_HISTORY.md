@@ -32,6 +32,23 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE verification: Auto-switch to Thinking (6/6)
+
+**Request:** live-verify auto-switch on production. Throwaway exchange user 199 /
+key `sk-pwm-Yo0yK…rumw` (id 245). Captured the live `/api/chat` model field then
+let it hit the REAL backend.
+
+**Proven on chatgpt.comparegpt.io** (payload, on Instant with Auto-switch on):
+a complex prompt ("Prove √2 is irrational, explaining each step") **escalated
+Instant → `gpt-5.5` (Medium)** and returned a real proof; a simple "say hi"
+**stayed `gpt-5.5-instant`**; and with Auto-switch OFF, a complex prove-prompt
+**stayed `gpt-5.5-instant`**. Zero console errors.
+
+**Artifacts pruned:** user 199 + api_key 245 + pwm_token_accounts row deleted, 8
+sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — Parity: Auto-switch to Thinking (Instant → Medium on hard queries)
 
 **Request:** "Continue to make it the same as ChatGPT." Research (OpenAI help /
