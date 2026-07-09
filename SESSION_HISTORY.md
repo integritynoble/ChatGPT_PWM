@@ -32,6 +32,24 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE verification: Study mode (6/6)
+
+**Request:** live-verify Study mode on production. Throwaway exchange user 198 /
+key `sk-pwm-d1APQ…UBzY` (id 242). Captured the live `/api/chat` payload then let
+it hit the REAL backend.
+
+**Proven on chatgpt.comparegpt.io** (payload + behavior): toggled Study mode on
+via the live + menu (row + composer pill lit); asked "What is the derivative of
+x squared? Teach me." A **real GPT-5.5 reply tutored** — opened "Great! Let's
+learn it step by step," introduced the power rule, and asked guiding questions
+rather than just stating "2x." The captured live request carried the STUDY MODE
+system instruction. Toggling off + new chat hid the pill. Zero console errors.
+
+**Artifacts pruned:** user 198 + api_key 242 + pwm_token_accounts row deleted, 6
+sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — Parity: Study mode (Socratic step-by-step tutor)
 
 **Request:** "Continue to make it the same as ChatGPT." Research (OpenAI blog
