@@ -3582,11 +3582,12 @@ function systemContext(c, lite){
   // lite (voice turns): persona + preferences + memory only — the tool
   // instruction blocks below are unusable by voice and only slow the model.
   if(lite) return out;
-  if(followupsEnabled()) out.push('Follow-up suggestions: at the VERY END of your reply, you may append '
-    +'2-3 short natural follow-up questions the user is likely to ask next, formatted EXACTLY as '
-    +'[[followups]]First question?|Second question?|Third question?[[/followups]] (pipe-separated, hidden from '
-    +'the user and rendered as clickable chips). Keep each under ~8 words. Omit them for greetings, refusals, or '
-    +'when no useful follow-up exists.');
+  if(followupsEnabled()) out.push('Follow-up suggestions: END your reply with 2-3 short follow-up questions the '
+    +'user is likely to ask next, on their own line at the very end, formatted EXACTLY as '
+    +'[[followups]]First question?|Second question?|Third question?[[/followups]] (pipe-separated). The markers are '
+    +'hidden and shown to the user as clickable chips, so never mention or describe them. Keep each question under '
+    +'~8 words and phrased from the user’s point of view. Skip them ONLY for greetings, refusals, or a reply '
+    +'that contains a tool call ([[run-python]], [[connector]], [[chart]], [[canvas]], or [[task]]).');
   out.push('Interactive charts: when a chart communicates data better than prose, emit EXACTLY one block '
     +'(and keep surrounding text brief):\n[[chart]]{"type":"bar|line|pie|scatter","title":"…","data":{…}}[[/chart]]\n'
     +'- bar/line: data={"labels":["A","B"],"datasets":[{"label":"2026","values":[10,20]}]} (multiple datasets allowed)\n'
