@@ -32,6 +32,38 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — Canvas: live HTML preview (ChatGPT Canvas / Sites parity)
+
+**Request:** "Continue parity." Today's OpenAI launch was mostly infra-bound
+(ChatGPT Work agent, full-duplex GPT-Live voice, desktop-app merger) — the
+feasible client-side gap: ChatGPT's Canvas renders **live HTML/web previews**
+(and the new **Sites** beta builds on it), while ours showed HTML only as a
+highlighted code fence.
+
+**Built** (`web/index.html`): an HTML canvas (`lang="html"`) now renders live in a
+**sandboxed iframe** — `srcdoc` + `sandbox="allow-scripts allow-forms
+allow-modals allow-popups"` (NO `allow-same-origin`, so the rendered app can't
+reach our origin, cookies, or localStorage). A `<>` code/preview toggle
+(`cvToggleSource`, shown only for HTML) flips between the live render and the
+source fence; Edit still edits source; `cvSourceView` resets to live on open.
+The canvas system instruction now tells the model that `lang="html"` should be a
+complete standalone document (inline CSS/JS) that renders live. Prose and
+other-language code canvases are unchanged (no iframe, toggle hidden).
+
+**Tradeoff (documented):** the sandbox lacks `allow-same-origin` by design, so a
+generated app's `localStorage`/cookie access throws (caught, harmless — the app
+still renders). Allowing storage safely would need a separate sandbox origin we
+don't have; the safe boundary is the right call.
+
+**Verified:** headless 10/10 — live iframe with the correct sandbox flags, srcdoc
+carries the HTML, **the rendered app is interactive** (clicking a button inside
+the iframe updates it), code/preview toggle works, and a prose/doc canvas is
+unaffected (no iframe, toggle hidden). charts/followups/study/auto-think suites
+green. Screenshot: a styled, interactive demo rendering in the canvas panel.
+Live on both domains.
+
+---
+
 ## 2026-07-09 — Model picker: GPT-5.6 Sol/Terra/Luna as visible tier choices
 
 **Request:** "Add Sol/Terra/Luna as visible choices in the picker" (follow-up to
