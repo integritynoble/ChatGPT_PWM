@@ -32,6 +32,26 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE verification: Record mode (7/7)
+
+**Request:** live-verify Record mode on production. Throwaway exchange user 203 /
+key `sk-pwm-NF9uu…BwuM` (id 271); mic mocked (no audio hardware) emitting a
+realistic 5-line standup transcript.
+
+**Proven on chatgpt.comparegpt.io:** started recording (bar captured the live
+transcript), Stop & summarize → the transcript went out as a real "Recording
+transcript" turn and a **real GPT-5.6 (Sol) reply produced structured notes** —
+Summary, Key points (with dates it inferred: Wednesday→July 15, tomorrow→July 10,
+Friday→July 17), and Action items — capturing the real content (pricing page,
+Maria's email campaign, mobile delay, login-bug ticket). Screenshot shows the
+transcript turn + structured notes + "Recording notes" sidebar title. Zero
+console errors.
+
+**Artifacts pruned:** user 203 + api_key 271 + pwm_token_accounts row deleted, 6
+sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — Parity: Record mode (transcribe + summarize a meeting/voice note)
 
 **Request:** "Continue parity." Research (gend.co feature roundup / release
