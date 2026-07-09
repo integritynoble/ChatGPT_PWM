@@ -32,6 +32,35 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — Parity: follow-up suggestions (clickable next-question chips)
+
+**Request:** "Continue to make it the same as ChatGPT." Verified real ChatGPT
+still has suggested follow-up questions under a reply + a "Show follow-up
+suggestions in chats" Settings toggle (TechRadar/OpenAI community). (Checked
+first that edit-branching already exists — `startEdit` pushes variants with a
+‹ 1/2 › pager — so that's not a gap.)
+
+**Built** (`web/index.html`): the model appends
+`[[followups]]q1|q2|q3[[/followups]]` at the end of a reply; `hideFollowups()`
+strips the marker from the live stream AND stored content, `extractFollowups()`
+stores up to 3 questions on the reply variant (`fups`), and `renderFollowups()`
+draws clickable chips under the LATEST assistant reply only (click → sends as
+the next turn). A "Show follow-up suggestions in chats" toggle in Settings
+(`cg_followups_off`) gates rendering + the system-context instruction; voice
+(lite) turns skip it; hidden in shared/group views. `renderFollowups()` is
+called from `markLast()` and once more after `setGenerating(false)` (during the
+finally's `renderThread`, `generating` is still true so chips would be
+suppressed).
+
+**Verified:** headless 12/12 — instruction taught, 3 chips parsed + rendered,
+marker hidden in displayed text and stored content, `fups` on the variant,
+click sends a turn, only one chip row (newest reply), toggle-off hides chips and
+un-teaches the marker. Screenshot matches ChatGPT (divider + stacked questions,
+each with a "+"). charts/custom-instructions/temp/memory/a11y suites green. Live
+on both domains.
+
+---
+
 ## 2026-07-09 — LIVE verification: structured Custom Instructions (10/10)
 
 **Request:** live-verify custom instructions on production. Throwaway exchange
