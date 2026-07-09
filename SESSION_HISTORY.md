@@ -32,6 +32,27 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE verification: Temporary Chat (9/9 on chatgpt.comparegpt.io)
+
+**Request:** live-verify Temporary Chat on production. Throwaway exchange user 190
+/ key `sk-pwm-S3U5P…GzDg` (id 224). Seeded a memory ("MEMSECRET …") + custom
+instruction ("CISECRET …") in the browser; captured the live `/api/chat` payload
+then let it hit the REAL backend.
+
+**Proven end-to-end:** entered Temporary Chat (hero shown) → a **real GPT-5.5
+reply** streamed ("The sky is soft blue today." — obeying the one-sentence custom
+instruction). Inspecting the actual live request: the seeded **memory was NOT
+sent** to the server, the **custom instruction WAS**, and no memory-save marker
+was taught. Afterward: no new memory saved locally (still 1), the convo was not
+written to `cg_convos`, and **the server sync store held 0 convos for the key**
+(only the baseline memory/settings kv the client pushes on load — not the temp
+chat). Zero console errors.
+
+**Artifacts pruned:** user 190 + api_key 224 + pwm_token_accounts row deleted, 5
+sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — Parity: Temporary Chat memory behavior fixed
 
 **Request:** "Continue to make it the same as ChatGPT." Researched current
