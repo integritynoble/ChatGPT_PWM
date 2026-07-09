@@ -32,6 +32,31 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — Parity: Study mode (Socratic step-by-step tutor)
+
+**Request:** "Continue to make it the same as ChatGPT." Research (OpenAI blog
+"Introducing study mode"): **Study Mode** (all plans, 2026) guides the user
+step by step with questions instead of just answering, calibrated to their
+level. We lacked it.
+
+**Built** (`web/index.html`): a "Study and learn" row in the + menu + a composer
+"Study" pill, following the code-interpreter pattern — `toggleStudyMode()` sets a
+per-conversation flag `c.studyOn`, reflected in the pill/checkmark, restored on
+`loadConvo`, reset on `newChat`; persisted in `onSend`. `systemContext()` injects
+a Socratic-tutor instruction when `studyActive(c)`: gauge the user's level, work
+ONE step at a time with a check-for-understanding question after each, give hints
+not answers when stuck, correct gently, end with a practice check — with an
+escape hatch if the user explicitly just wants the answer.
+
+**Verified:** headless 14/14 — row present, off by default, toggle marks the row
++ shows the pill + injects the instruction, instruction reaches the backend,
+`studyOn` persists on the convo, a new chat resets it while reopening the study
+chat restores the pill AND the instruction, toggle-off drops both.
+charts/followups/project-instructions/mobile-menu suites green. Live on both
+domains.
+
+---
+
 ## 2026-07-09 — LIVE verification: per-project custom instructions (8/8)
 
 **Request:** live-verify project instructions on production. Throwaway exchange
