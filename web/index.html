@@ -130,6 +130,9 @@
        border-radius:14px;padding:6px;box-shadow:0 12px 32px rgba(0,0,0,.4);z-index:80;display:none}
   .pop.open{display:block}
   #model-menu{top:52px;left:14px;min-width:300px}
+  .model-config{border-top:1px solid var(--border);margin-top:4px;padding:10px 12px 4px}
+  .model-config .mem-toggle{font-size:14px;color:var(--text)}
+  .model-config-note{font-size:12px;color:var(--text-3);margin:2px 0 0 22px}
   #account-menu{bottom:64px;left:10px;min-width:236px}
   .model-opt,.menu-row{display:flex;align-items:flex-start;gap:12px;padding:10px 12px;border-radius:10px;width:100%;
              text-align:left;transition:background .15s;font-size:14px;color:var(--text)}
@@ -1336,6 +1339,8 @@ function toggleSearch(){
 }
 
 // ── Menus / popovers ────────────────────────────────────────────────────
+function autoThinkEnabled(){ return localStorage.getItem('cg_auto_think')!=='0'; }   // default on
+function toggleAutoThink(e){ if(e) e.stopPropagation(); localStorage.setItem('cg_auto_think', autoThinkEnabled()?'0':'1'); renderModelMenu(); }
 function renderModelMenu(){
   const m=$('#model-menu');
   m.innerHTML=MODELS.map(x=>`
@@ -1343,7 +1348,11 @@ function renderModelMenu(){
       <svg width="20" height="20"><use href="#oai"/></svg>
       <span class="info"><span class="t">${x.name}</span><span class="d">${x.desc}</span></span>
       <svg class="check" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-    </button>`).join('');
+    </button>`).join('')
+    + `<div class="model-config">
+        <label class="mem-toggle" onclick="event.stopPropagation()"><input type="checkbox" id="auto-think" ${autoThinkEnabled()?'checked':''} onchange="toggleAutoThink(event)"> Auto-switch to Thinking</label>
+        <div class="model-config-note">On Instant, use more reasoning for complex questions</div>
+      </div>`;
 }
 function closeAllPops(){ document.querySelectorAll('.pop').forEach(p=>p.classList.remove('open'));
   document.querySelectorAll('.pop.transient').forEach(p=>p.remove()); }
@@ -1873,6 +1882,16 @@ function libDB(){
   }));
 }
 function lastUserText(c){ for(let i=c.messages.length-1;i>=0;i--){ if(c.messages[i].role==='user') return msgText(c.messages[i]); } return ''; }
+// Heuristic for "this question likely needs more reasoning" — powers Auto-switch
+// to Thinking (Instant → Medium) the way ChatGPT auto-escalates complex requests.
+const THINK_RE=/\b(prove|proof|derive|derivation|solve|calculate|compute|evaluate|integral|derivative|equation|theorem|algorithm|complexity|optimi[sz]e|debug|refactor|analy[sz]e|explain why|step[-\s]?by[-\s]?step|reason(ing)?|trade[-\s]?offs?|compare and contrast|architect(ure)?|design a|plan a|strategy|estimate|why does|how would|what if|edge cases?)\b/i;
+function looksComplex(text){
+  text=(text||'').trim(); if(!text) return false;
+  if(text.length>360) return true;                 // long, likely multi-part
+  if((text.match(/\?/g)||[]).length>=3) return true; // several questions
+  if(/```|\n\s*\d+\.\s/.test(text)) return true;    // code or an enumerated task list
+  return THINK_RE.test(text);
+}
 
 async function librarySave(url, caption, chatId){
   try{ const db=await libDB(); db.transaction('images','readwrite').objectStore('images')
@@ -3383,12 +3402,20 @@ async function streamReply(model, hint, depth, retry){
     md.classList.add('cursor'); scrollBottom(); raf=null;
   };
 
+  // Auto-switch to Thinking: on Instant, escalate to Medium for complex questions
+  // (never for voice, deep research, or tool-continuation turns).
+  let reqModel = voiceTurn ? 'gpt-5.5-instant' : (deepResearch ? 'gpt-5.5-thinking' : model);
+  if(!voiceTurn && !deepResearch && depth===0 && reqModel==='gpt-5.5-instant'
+     && autoThinkEnabled() && looksComplex(lastUserText(c))){
+    reqModel='gpt-5.5';
+  }
+
   try{
     const resp=await fetch('/api/chat',{
       method:'POST',
       headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
       body:JSON.stringify({messages:sendMsgs,
-        model:(voiceTurn?'gpt-5.5-instant':(deepResearch?'gpt-5.5-thinking':model)),
+        model:reqModel,
         stream:true,
         web_search:(!voiceTurn&&(webSearch||deepResearch)),
         image_gen:(!voiceTurn&&imageGen)}),
