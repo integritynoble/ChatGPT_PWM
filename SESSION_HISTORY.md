@@ -32,6 +32,29 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE share-links verification (15/15 on chatgpt.comparegpt.io)
+
+**Request:** "Please test the share links on the live site." Throwaway exchange
+user 187 / key `sk-pwm-HCMcR…GeAs` (id 209).
+
+**Verified on the real site:** Share dialog minted a real `/share/<id>` URL;
+re-sharing the same chat upserted the SAME id (ChatGPT "update link"); the
+public `/api/share/<id>` snapshot returned 200 **with no key** and carried the
+convo but **no `srcs`** (memory-sources privacy holds through sharing); a
+logged-out second browser at `/share/<id>` rendered the full thread incl. the
+code block, hid the composer (read-only `body.shared`), and showed the
+"Continue this conversation" pill; owner Settings listed the link; a real
+DELETE revoked it → public API then **404** and the shared page showed
+"unavailable." Zero console errors (owner + viewer). (Test note: browser-based
+`fetch` used for the API calls — raw `urllib` gets a Cloudflare 403 with no
+browser UA; not a site issue.)
+
+**Artifacts pruned:** exchange user 187 + api_key 209 + pwm_token_accounts row
+deleted; 6 rows (shares + items) purged from the sync DB; key now returns
+"Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — LIVE group-chat verification (two-browser, 10/10 on chatgpt.comparegpt.io)
 
 **Request:** "Please test the group chats on the live site." Two throwaway
