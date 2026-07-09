@@ -32,6 +32,30 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE verification: follow-up suggestions (found + fixed a real bug)
+
+**Request:** live-verify follow-up suggestions on production. Throwaway exchange
+user 194 / key `sk-pwm-S4YMt…j7qw` (id 230).
+
+**Found a real defect the headless stub had masked:** the first live run showed
+NO chips. Captured the raw live SSE — GPT-5.5 never emitted the `[[followups]]`
+marker at all. Root cause: the instruction said "you *may* append," which the
+model treats as fully optional (headless passed only because the stub hard-coded
+the marker). ChatGPT shows follow-ups by default, so made the instruction
+**directive** ("END your reply with 2-3 follow-up questions…") with explicit
+skip cases (greetings/refusals/tool-call replies). Redeployed.
+
+**Re-verified live (7/7):** real GPT-5.5 reply produced 3 clean, relevant chips
+("How do black holes form?" / "Can black holes evaporate?" / "What is an event
+horizon?"), no raw marker leaked, 2-3 chips as ChatGPT does, clicking a chip sent
+it as the next turn and got a real answer, and the NEXT reply chained its own
+follow-up chip. Zero console errors. (`929455b`.)
+
+**Artifacts pruned:** user 194 + api_key 230 + pwm_token_accounts row deleted, 8
+sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — Parity: follow-up suggestions (clickable next-question chips)
 
 **Request:** "Continue to make it the same as ChatGPT." Verified real ChatGPT
