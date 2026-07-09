@@ -32,6 +32,29 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — Parity: Auto-switch to Thinking (Instant → Medium on hard queries)
+
+**Request:** "Continue to make it the same as ChatGPT." Research (OpenAI help /
+model release notes): the model picker's **Configure → "Auto-switch to
+Thinking"** — on Instant, complex requests automatically use more reasoning
+(Instant → Medium). We lacked it.
+
+**Built** (`web/index.html`): the model menu gains an "Auto-switch to Thinking"
+toggle below a divider (`cg_auto_think`, default on). A `looksComplex()` heuristic
+(length >360, ≥3 questions, code/enumerated task list, or reasoning keywords —
+prove/derive/solve/optimize/step-by-step/analyze/why/…) escalates
+`gpt-5.5-instant → gpt-5.5` on the INITIAL turn only. Never touches voice turns
+(latency-critical), deep research, tool-continuation turns (depth>0), or an
+explicitly selected Medium/High.
+
+**Verified:** headless 10/10 — toggle present + default on, heuristic (simple
+greeting not complex; prove/step-by-step complex), Instant+complex→Medium,
+Instant+simple stays Instant, disabled stays Instant, explicit Thinking
+respected. Voice fast-path still forces Instant; charts green. Screenshot shows
+the picker with the Configure toggle. Live on both domains.
+
+---
+
 ## 2026-07-09 — LIVE verification: Study mode (6/6)
 
 **Request:** live-verify Study mode on production. Throwaway exchange user 198 /
