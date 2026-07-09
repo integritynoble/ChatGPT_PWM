@@ -73,6 +73,9 @@
   .temp-hero h1{font-size:24px;font-weight:600;color:var(--text)}
   .temp-hero p{font-size:14px;color:var(--text-3);max-width:400px}
   body.temp #composer{border-style:dashed}
+  #temp-btn.on{background:var(--hover);color:var(--text)}
+  body.temp #topbar::after{content:"Temporary";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    font-size:12px;color:var(--text-3);pointer-events:none}
   .sb-nav{padding:4px 8px}
   .nav-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;font-size:14px;
             color:var(--text);transition:background .15s;width:100%;text-align:left}
@@ -111,7 +114,7 @@
 
   /* ── Main ──────────────────────────────────────────── */
   #main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
-  #topbar{display:flex;align-items:center;gap:6px;padding:10px 14px;height:52px;flex-shrink:0}
+  #topbar{display:flex;align-items:center;gap:6px;padding:10px 14px;height:52px;flex-shrink:0;position:relative}
   .menu-toggle{display:none}
   #model-btn{display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:10px;font-size:18px;
              font-weight:500;color:var(--text);transition:background .15s}
@@ -3458,7 +3461,7 @@ function deleteMemoryFromUI(id){ deleteMemory(id); renderMemoryList(); }
 function clearMemoriesFromUI(){ if(memories.length && !confirm('Clear all memories on this device?')) return; clearMemories(); renderMemoryList(); }
 // The memory system message: known memories + how to save new ones.
 function memoryBlock(){
-  if(!memoryEnabled()) return '';
+  if(tempMode || !memoryEnabled()) return '';   // temporary chats never use memories
   const day=ts=>{ try{ return new Date(ts).toISOString().slice(0,10); }catch(e){ return ''; } };
   let s='You have persistent memory of this user across conversations. Today is '+day(now())+'.';
   if(memories.length){
@@ -3476,6 +3479,8 @@ function memoryBlock(){
 }
 // Parse & strip [[memory: ...]] markers from a finished reply; save any new facts.
 function captureMemories(text){
+  // Temporary chats never create memories — strip any marker without saving.
+  if(tempMode) return text.replace(/\[\[\s*memory\s*:\s*([^\]]+?)\s*\]\]/gi,'').replace(/\n{3,}/g,'\n\n').trim();
   if(!memoryEnabled()) return text;
   let saved=0;
   const clean=text.replace(/\[\[\s*memory\s*:\s*([^\]]+?)\s*\]\]/gi, (_,fact)=>{ addMemory(fact); saved++; return ''; });
@@ -3680,7 +3685,7 @@ function captureSources(c, lite){
   const s={};
   if(c && c.gptId){ const g=gptById(c.gptId); if(g && g.name) s.gpt=g.name; }
   if(customInstructions()) s.ci=true;
-  if(memoryEnabled() && memories.length) s.mem=memories.map(m=>({id:m.id, text:m.text}));
+  if(!tempMode && memoryEnabled() && memories.length) s.mem=memories.map(m=>({id:m.id, text:m.text}));
   if(!lite && c && c.projectId && projectFilesCache[c.projectId] && projectFilesCache[c.projectId].length)
     s.files=projectFilesCache[c.projectId].map(f=>f.name);
   return (s.gpt||s.ci||s.mem||s.files) ? s : null;
