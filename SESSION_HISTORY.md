@@ -32,6 +32,26 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE voice-conversation verification (9/9 on chatgpt.comparegpt.io)
+
+**Request:** "Please test the voice conversation on the live site." Same
+throwaway-account pattern as the memory-sources live test (exchange user 183,
+key `sk-pwm-6JPix…yucY`, id 202; mic mocked — no audio hardware on this host).
+
+**Proven end-to-end through the REAL production stack:** voice button renders →
+voice mode opens → spoken words became a live `/api/chat` turn (real GPT-5.5)
+→ live `/api/tts` returned real neural audio (9.2 KB, 200) → played via Web
+Audio (decoded clip 1.54 s) → loop returned to Listening → second turn spoken
+→ **barge-in mid-reply stopped playback and the interrupting words became a
+third live turn** → all three turns persisted to the thread (user/assistant ×3)
+→ zero console errors. Audio verified at the audio-graph level (real decoded
+buffers scheduled); actual speaker output can't be heard from a server.
+
+**Artifacts pruned:** user 183 + api_key 202 + pwm_token_accounts row deleted,
+6 sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-08 — Memory sources indicator (book icon → what personalized this reply)
 
 **Request:** "Please build the memory sources indicator" — the remaining item
