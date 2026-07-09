@@ -32,6 +32,25 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE verification: structured Custom Instructions (10/10)
+
+**Request:** live-verify custom instructions on production. Throwaway exchange
+user 192 / key `sk-pwm-tOIoP…8Vy0` (id 228). Captured the live `/api/chat`
+payload then let it hit the REAL backend.
+
+**Proven on chatgpt.comparegpt.io:** set nickname "Captain Nova", occupation
+"astrophysicist", tone "Nerdy", about "I study galaxies.", style "one short
+sentence" via live Settings → saved. A **real GPT-5.5 turn** replied **"Hello,
+Captain Nova!"** — using the nickname AND obeying the one-sentence style. The
+captured live request carried all five: nickname, occupation, the Nerdy tone
+instruction, about, and style — as system messages. Behavioral + payload proof
+both green. Zero console errors.
+
+**Artifacts pruned:** user 192 + api_key 228 + pwm_token_accounts row deleted, 6
+sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — Parity: structured Custom Instructions (nickname/occupation/tone)
 
 **Request:** "Continue to make it the same as ChatGPT." Research (OpenAI help
