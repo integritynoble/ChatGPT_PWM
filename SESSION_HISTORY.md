@@ -32,6 +32,33 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — Parity: Temporary Chat memory behavior fixed
+
+**Request:** "Continue to make it the same as ChatGPT." Researched current
+ChatGPT (help-center/releasebot): **Temporary Chat** — "does not use or create
+memories, but still follows Custom Instructions." Our Temporary Chat UI already
+existed (toggle `#temp-btn`, ephemeral `tempConvo`, `persist()`/sync excluded,
+"Temporary Chat" hero) — but the DEFINING behavior was unwired: temp chats still
+injected existing memories via `memoryBlock()` and still saved new `[[memory:]]`
+facts via `captureMemories()`.
+
+**Fix** (`web/index.html`): `memoryBlock()` and `captureMemories()` now no-op in
+`tempMode` (no memories used or created; the marker is stripped defensively but
+never saved); `captureSources()` omits memories for temp replies (the sources
+book icon shows only "Custom instructions"). `customInstructions()` still applies
+— exactly ChatGPT's spec. Cosmetic: active-toggle style + centered "Temporary"
+top-bar label (`#topbar` made `position:relative` so the absolute label anchors
+correctly).
+
+**Verified:** headless 15/15 — temp chat injects NO existing memory, keeps custom
+instructions, doesn't teach the memory marker, saves NO new memory, isn't
+persisted to `cg_convos`, and its sources popover lists only custom instructions;
+a normal chat still uses AND saves memory (regression). Screenshot confirms the
+"Temporary Chat" hero + centered top-bar label. Charts/a11y/reliability/
+memory-sources/mobile suites green. Live on both domains.
+
+---
+
 ## 2026-07-09 — LIVE verification: accessibility + reliability (19/19)
 
 **Request:** live-verify the accessibility and reliability features on production.
