@@ -32,6 +32,30 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — Parity: per-project custom instructions
+
+**Request:** "Continue to make it the same as ChatGPT." Research (OpenAI
+help/academy): ChatGPT **Projects** each have their own instructions — "Project
+instructions override your global custom instructions, but only inside this
+project." Ours had project files but no project instructions.
+
+**Built** (`web/index.html`): project detail view gains an "Instructions"
+textarea (1500-char, saved on change to `p.instructions`, synced via the
+existing project sync). `systemContext()` now: if a chat's project has
+instructions, inject them and SKIP global custom instructions (override
+semantics); otherwise use global CI. Non-project chats are unchanged.
+`captureSources()`/`srcPopover()` show "Project instructions" instead of
+"Custom instructions" for such replies.
+
+**Verified:** headless 10/10 — textarea present, save persists on the project,
+a project chat injects project instructions AND omits global CI, a non-project
+chat keeps global CI (no project rule leak), the live request carries project
+instructions, the project sync payload includes them, and clearing reverts to
+global CI. custom-instructions/followups/memory-sources/temp suites green. Live
+on both domains.
+
+---
+
 ## 2026-07-09 — LIVE verification: follow-up suggestions (found + fixed a real bug)
 
 **Request:** live-verify follow-up suggestions on production. Throwaway exchange
