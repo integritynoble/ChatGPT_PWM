@@ -762,7 +762,7 @@
       </button>
       <button id="model-btn" onclick="toggleModelMenu(event)">
         <svg class="brand" width="20" height="20"><use href="#oai"/></svg>
-        ChatGPT <span class="sub" id="model-sub">5.5</span>
+        ChatGPT <span class="sub" id="model-sub">Sol</span>
         <svg class="chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
       </button>
       <span id="view-title" style="display:none;font-size:18px;font-weight:600;padding:8px 4px"></span>
@@ -1219,13 +1219,15 @@ function enhance(container){
 // ── State ───────────────────────────────────────────────────────────────
 // June 2026 picker: plain speed-vs-depth levels, not a model catalogue
 // (Thinking Standard → Medium, Thinking Extended → High; ids stay stable).
+// GPT-5.6 tiers (GA 2026-07-09): the number is the generation; Sol/Terra/Luna
+// are durable capability tiers. Ids are the real backend slugs.
 const MODELS=[
-  {id:'gpt-5.5-instant', name:'Instant', sub:'Instant', desc:'Fastest answers for everyday tasks'},
-  {id:'gpt-5.5', name:'Medium', sub:'Medium', desc:'Balanced speed and thinking'},
-  {id:'gpt-5.5-thinking', name:'High', sub:'High', desc:'Thinks longer for harder problems'},
+  {id:'gpt-5.6-sol', name:'GPT-5.6 Sol', sub:'Sol', desc:'Most capable — best for hard problems'},
+  {id:'gpt-5.6-terra', name:'GPT-5.6 Terra', sub:'Terra', desc:'Fast and balanced for everyday tasks'},
+  {id:'gpt-5.6-luna', name:'GPT-5.6 Luna', sub:'Luna', desc:'Lightweight and efficient'},
 ];
-let currentModel = localStorage.getItem('cg_model') || 'gpt-5.5';
-if(!MODELS.some(m=>m.id===currentModel)) currentModel='gpt-5.5';   // migrate retired ids (5.4 etc.)
+let currentModel = localStorage.getItem('cg_model') || 'gpt-5.6-sol';
+if(!MODELS.some(m=>m.id===currentModel)) currentModel='gpt-5.6-sol';   // migrate retired ids (5.5/5.4, effort levels)
 let convos = JSON.parse(localStorage.getItem('cg_convos')||'[]');
 // migrate legacy assistant messages (flat content) -> versioned variants
 convos.forEach(c=>(c.messages||[]).forEach(m=>{
@@ -1351,7 +1353,7 @@ function renderModelMenu(){
     </button>`).join('')
     + `<div class="model-config">
         <label class="mem-toggle" onclick="event.stopPropagation()"><input type="checkbox" id="auto-think" ${autoThinkEnabled()?'checked':''} onchange="toggleAutoThink(event)"> Auto-switch to Thinking</label>
-        <div class="model-config-note">On Instant, use more reasoning for complex questions</div>
+        <div class="model-config-note">On Terra, use the more capable Sol for complex questions</div>
       </div>`;
 }
 function closeAllPops(){ document.querySelectorAll('.pop').forEach(p=>p.classList.remove('open'));
@@ -3402,12 +3404,13 @@ async function streamReply(model, hint, depth, retry){
     md.classList.add('cursor'); scrollBottom(); raf=null;
   };
 
-  // Auto-switch to Thinking: on Instant, escalate to Medium for complex questions
-  // (never for voice, deep research, or tool-continuation turns).
+  // Auto-switch to Thinking: on the fast Terra tier, escalate to the more capable
+  // Sol for complex questions (never for voice, deep research, or continuations).
+  // Voice/deep-research use the effort-suffixed aliases the backend maps to 5.6.
   let reqModel = voiceTurn ? 'gpt-5.5-instant' : (deepResearch ? 'gpt-5.5-thinking' : model);
-  if(!voiceTurn && !deepResearch && depth===0 && reqModel==='gpt-5.5-instant'
+  if(!voiceTurn && !deepResearch && depth===0 && reqModel==='gpt-5.6-terra'
      && autoThinkEnabled() && looksComplex(lastUserText(c))){
-    reqModel='gpt-5.5';
+    reqModel='gpt-5.6-sol';
   }
 
   try{
