@@ -179,6 +179,14 @@
   #net-banner{position:fixed;top:0;left:0;right:0;z-index:450;text-align:center;padding:7px 12px;font-size:13px;
               background:var(--danger);color:#fff}
   #net-banner[hidden]{display:none}
+  /* record mode */
+  #record-bar{position:fixed;top:0;left:0;right:0;z-index:450;display:none;align-items:center;gap:12px;
+              padding:9px 16px;background:var(--composer);border-bottom:1px solid var(--border);font-size:13px}
+  #record-bar.open{display:flex}
+  .rec-dot{width:11px;height:11px;border-radius:50%;background:var(--danger);flex-shrink:0;animation:rec-pulse 1.3s ease-in-out infinite}
+  @keyframes rec-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  #rec-time{font-variant-numeric:tabular-nums;color:var(--text-2);flex-shrink:0}
+  #rec-transcript{flex:1;min-width:0;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .login-or{display:flex;align-items:center;text-align:center;color:var(--text-3);font-size:12px;margin:14px 0 8px}
   .login-or::before,.login-or::after{content:"";flex:1;border-top:1px solid var(--border)}
   .login-or span{padding:0 12px}
@@ -676,6 +684,13 @@
 <a href="#main" id="skip-link">Skip to conversation</a>
 <div id="sr-status" class="sr-only" aria-live="polite" aria-atomic="true"></div>
 <div id="net-banner" role="status" hidden>⚠ You're offline — reconnect to keep chatting.</div>
+<div id="record-bar" role="dialog" aria-label="Recording">
+  <span class="rec-dot"></span>
+  <span id="rec-time">00:00</span>
+  <span id="rec-transcript" aria-live="polite"></span>
+  <button class="btn btn-sm btn-ghost" onclick="stopRecord(true)">Cancel</button>
+  <button class="btn btn-sm btn-primary" onclick="stopRecord(false)">Stop &amp; summarize</button>
+</div>
 <div id="app">
   <!-- Sidebar -->
   <aside id="sidebar">
@@ -914,6 +929,10 @@
   <button class="menu-row plus-item" data-search="add from library saved files reuse documents attach stored" onclick="closeAllPops();openFilePicker()">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
     <span class="info"><span class="t">Add from library</span><span class="d">Reuse a file you uploaded before</span></span>
+  </button>
+  <button class="menu-row plus-item" id="pm-record" data-search="record mode meeting voice note transcribe summarize notes minutes dictation capture" onclick="closeAllPops();startRecord()">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/></svg>
+    <span class="info"><span class="t">Record</span><span class="d">Transcribe &amp; summarize a meeting or voice note</span></span>
   </button>
   <button class="menu-row plus-item" id="pm-image" data-search="create image visualize anything picture generate art draw" onclick="plusToggle('image')">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
@@ -2901,6 +2920,54 @@ scroll.addEventListener('scroll',()=>{
 // ── Compose / send ──────────────────────────────────────────────────────
 const micBtn=$('#mic');
 const micSupported = !!(window.SpeechRecognition||window.webkitSpeechRecognition);
+
+// ── Record mode: capture a meeting / voice note, then transcribe + summarize ──
+let recording=false, recRec=null, recordText='', recStart=0, recTimer=null;
+const RECORD_HINT='The user just recorded audio; the previous message is the raw transcript. '
+  +'Turn it into clean notes: a one-line **Summary**, then **Key points** as bullets, then '
+  +'**Action items** as a checklist (- [ ] …). Correct obvious transcription slips, keep it tight, and skip filler.';
+function recTick(){
+  const el=$('#rec-time'); if(!el) return;
+  const s=Math.max(0,Math.floor((Date.now()-recStart)/1000));
+  el.textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}
+function startRecord(){
+  if(recording) return;
+  if(!micSupported){ showToast('Recording needs a browser with speech recognition (Chrome or Edge)'); return; }
+  if(!getKey()){ showToast('Sign in to continue'); openKeyModal(); return; }
+  recording=true; recordText=''; recStart=now();
+  $('#rec-transcript').textContent=''; recTick();
+  $('#record-bar').classList.add('open');
+  recTimer=setInterval(recTick,1000);
+  recListen();
+}
+function recListen(){
+  if(!recording) return;
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  const r=new SR(); recRec=r; r.lang='en-US'; r.interimResults=true; r.continuous=true;
+  let interim='';
+  r.onresult=(e)=>{ interim='';
+    for(let i=e.resultIndex;i<e.results.length;i++){ const t=e.results[i][0].transcript;
+      if(e.results[i].isFinal) recordText+=t+' '; else interim+=t; }
+    $('#rec-transcript').textContent=(recordText+interim).replace(/\s+/g,' ').trim().slice(-300); };
+  r.onerror=(e)=>{ if(e.error==='not-allowed'||e.error==='service-not-allowed'){ showToast('Microphone access denied'); stopRecord(true); } };
+  r.onend=()=>{ if(recording && recRec===r) recListen(); };   // keepalive: recognition auto-stops periodically
+  try{ r.start(); }catch(e){}
+}
+function stopRecord(cancel){
+  if(!recording) return;
+  recording=false; clearInterval(recTimer); recTimer=null;
+  try{ recRec&&recRec.abort(); }catch(e){} recRec=null;
+  $('#record-bar').classList.remove('open');
+  const text=recordText.replace(/\s+/g,' ').trim(); recordText='';
+  if(cancel || !text){ if(!cancel) showToast('Nothing was recorded'); return; }
+  const c=ensureConvo();
+  c.messages.push({role:'user', content:'📝 Recording transcript:\n\n'+text, ts:now()});
+  c.messages.push({role:'assistant', variants:[{content:'',ts:now()}], vi:0});
+  c.ts=now(); if(!c.title) c.title='Recording notes';
+  persist(); renderChatList();
+  streamReply(undefined, RECORD_HINT);
+}
 
 function updateComposerButtons(){
   const hasText=!!input.value.trim() || attachments.length>0;
