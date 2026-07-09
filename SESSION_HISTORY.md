@@ -32,6 +32,23 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE verification: interactive charts + API-key sign-in (8/8)
+
+**Request:** live-verify the two new user-facing features on production.
+Throwaway exchange user 188 / key `sk-pwm-kkJNl…NrOQ` (id 215).
+
+**Proven on chatgpt.comparegpt.io:** signed in via the **optional PWM API-key**
+path (login modal → "Use a PWM API key" → key accepted → logged in); then a real
+prompt ("bar chart of apples 12, bananas 19, cherries 8") made **GPT-5.5 emit a
+[[chart]] spec that rendered as a live interactive SVG** — 3 bars matching the
+data, "Fruit Counts" title, hover tooltip ("Apples / Count: 12"), Download-PNG
+button, no raw marker leaked. Screenshot captured. Zero console errors.
+
+**Artifacts pruned:** user 188 + api_key 215 + pwm_token_accounts row deleted, 6
+sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — Improvement sprint: charts, accessibility, reliability, + optional API key
 
 **Request:** "Please continue to improve it" → chose all three of: interactive
