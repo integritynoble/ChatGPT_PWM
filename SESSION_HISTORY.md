@@ -32,6 +32,31 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE verification: accessibility + reliability (19/19)
+
+**Request:** live-verify the accessibility and reliability features on production.
+Throwaway exchange user 189 / key `sk-pwm-0tV4L…eFLE` (id 218).
+
+**Accessibility (10/10) on chatgpt.comparegpt.io** — deployed page served the skip
+link, `role=log` thread, and `aria-live` SR region; `prefers-reduced-motion`
+collapsed animations (reduced-motion browser context); the live Settings modal had
+`role=dialog`+`aria-modal`, moved focus in on open, and Tab-wrapped (focus trap);
+and a **real GPT-5.5 turn** announced "Generating response…" then "Response ready."
+via the SR region.
+
+**Reliability (9/9)** — the strongest test: intercepted the FIRST `/api/chat` and
+aborted it at the network layer (connection reset), then let the retry through to
+the **REAL backend** — the deployed auto-retry recovered with a genuine generation
+("recovered"), 2 chat calls. Offline: banner shown, send blocked with a clear
+toast, banner cleared on reconnect (real client behavior via set_offline on the
+live page). A simulated 429 to the deployed client showed the friendly "busy"
+message and was NOT auto-retried (1 call). Zero console errors.
+
+**Artifacts pruned:** user 189 + api_key 218 + pwm_token_accounts row deleted, 7
+sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — LIVE verification: interactive charts + API-key sign-in (8/8)
 
 **Request:** live-verify the two new user-facing features on production.
