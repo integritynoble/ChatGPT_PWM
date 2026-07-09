@@ -162,6 +162,13 @@
   .cg-ch-tip{position:absolute;pointer-events:none;background:var(--menu);border:1px solid var(--border);
              border-radius:8px;padding:6px 9px;font-size:12px;color:var(--text);box-shadow:0 6px 20px rgba(0,0,0,.35);
              white-space:nowrap;z-index:5}
+  /* follow-up suggestion chips */
+  .followups{display:flex;flex-direction:column;gap:1px;margin-top:14px;border-top:1px solid var(--border);padding-top:6px}
+  .followup-chip{text-align:left;padding:11px 4px;font-size:15px;color:var(--text-2);border-bottom:1px solid var(--border);
+                 display:flex;align-items:center;gap:8px;transition:color .12s}
+  .followup-chip:last-child{border-bottom:none}
+  .followup-chip:hover{color:var(--text)}
+  .followup-chip::after{content:"+";margin-left:auto;color:var(--text-3);font-size:18px;font-weight:400}
   /* accessibility */
   .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   :focus-visible{outline:2px solid #7eb6ff;outline-offset:2px}
@@ -1003,6 +1010,11 @@
       <textarea id="ci-about" class="ci-field" rows="3" maxlength="1500" placeholder="e.g. I'm a physicist working on world models; prefer SI units." spellcheck="false"></textarea>
       <label for="ci-style">How would you like ChatGPT to respond?</label>
       <textarea id="ci-style" class="ci-field" rows="3" maxlength="1500" placeholder="e.g. Be concise and direct. Use headings and code blocks. Skip the pleasantries." spellcheck="false"></textarea>
+
+      <div class="mem-head" style="margin-top:16px">
+        <label style="margin:0">Show follow-up suggestions in chats</label>
+        <label class="mem-toggle"><input type="checkbox" id="followups-enabled" onchange="setFollowups(this.checked)"> Enabled</label>
+      </div>
 
       <div class="mem-head">
         <label style="margin:0">Memory</label>
@@ -2371,6 +2383,40 @@ function extractConnector(text){
 }
 // Connector calls never render as text — the tool block below shows the call.
 function hideConnCall(text){ return text.replace(CONN_RE,'').replace(CONN_OPEN_RE,'').trim(); }
+
+// ── Follow-up suggestions ───────────────────────────────────────────────
+// The model appends [[followups]]q1|q2|q3[[/followups]] at the very end of a
+// reply; we hide the marker and render up to 3 clickable suggestion chips under
+// the LAST assistant reply (ChatGPT's "Show follow-up suggestions").
+const FUP_RE=/\[\[followups\]\]([\s\S]*?)\[\[\/followups\]\]/i;
+const FUP_OPEN_RE=/\n*\[\[followups\]\][\s\S]*$/i;
+function followupsEnabled(){ return localStorage.getItem('cg_followups_off')!=='1'; }
+function hideFollowups(text){ return text.replace(FUP_RE,'').replace(FUP_OPEN_RE,'').replace(/\n{3,}/g,'\n\n').trim(); }
+function extractFollowups(text){
+  const m=text.match(FUP_RE); if(!m) return null;
+  const qs=m[1].split('|').map(s=>s.replace(/^["'\d.\-\s]+/,'').trim()).filter(q=>q.length>1).slice(0,3);
+  return qs.length?qs:null;
+}
+function renderFollowups(){
+  thread.querySelectorAll('.followups').forEach(e=>e.remove());
+  if(!followupsEnabled() || generating || sharedView || currentGroup) return;
+  const msgs=activeMsgs(); const last=msgs[msgs.length-1];
+  if(!last || last.role!=='assistant') return;
+  const v=last.variants && last.variants[last.vi];
+  const fups=v && v.fups;
+  if(!fups || !fups.length) return;
+  const allA=thread.querySelectorAll('.msg.assistant');
+  const el=allA[allA.length-1]; if(!el) return;
+  const col=el.querySelector('.col') || (el.querySelector('.markdown') && el.querySelector('.markdown').parentElement);
+  if(!col) return;
+  const box=document.createElement('div'); box.className='followups'; box.setAttribute('role','group'); box.setAttribute('aria-label','Follow-up suggestions');
+  fups.slice(0,3).forEach(q=>{
+    const btn=document.createElement('button'); btn.className='followup-chip'; btn.type='button'; btn.textContent=q;
+    btn.onclick=()=>{ input.value=q; autosize(input); onSend(); };
+    box.appendChild(btn);
+  });
+  col.appendChild(box);
+}
 const CONN_LABELS={github:'GitHub', finance:'Finances'};
 async function runConnectorAndContinue(c, call, model, depth){
   const tool={role:'tool', running:true, conn:{service:call.service, action:call.action, params:call.params||{}}, ts:now()};
@@ -2614,7 +2660,7 @@ function renderMessage(m, idx){
         </div>
       </div>`;
     const md=msg.querySelector('.markdown');
-    if(content){ md.innerHTML=renderMarkdown(renderChartMarkers(hideTaskCall(hideConnCall(renderRunnable(content))))); enhance(md); }
+    if(content){ md.innerHTML=renderMarkdown(renderChartMarkers(hideFollowups(hideTaskCall(hideConnCall(renderRunnable(content)))))); enhance(md); }
     msg.querySelector('.act-copy').onclick=(e)=>copyBtn(e.currentTarget, content);
     if(m.rating==='up') msg.querySelector('.act-good').classList.add('ok');
     if(m.rating==='down') msg.querySelector('.act-bad').classList.add('ok');
@@ -2763,6 +2809,7 @@ function markLast(){
   thread.querySelectorAll('.msg.assistant').forEach(m=>m.classList.remove('last'));
   const all=thread.querySelectorAll('.msg.assistant');
   if(all.length) all[all.length-1].classList.add('last');
+  renderFollowups();
 }
 
 function scrollBottom(force){
@@ -3297,7 +3344,7 @@ async function streamReply(model, hint, depth, retry){
       streamCanvasLive(sp.canvas);
       md.innerHTML=renderMarkdown(sp.chat)+canvasCardHtml(sp.canvas.title, sp.open);
     } else {
-      md.innerHTML=renderMarkdown(renderChartMarkers(hideTaskCall(hideConnCall(renderRunnable(forDisplay(full))))));
+      md.innerHTML=renderMarkdown(renderChartMarkers(hideFollowups(hideTaskCall(hideConnCall(renderRunnable(forDisplay(full)))))));
     }
     md.classList.add('cursor'); scrollBottom(); raf=null;
   };
@@ -3372,9 +3419,12 @@ async function streamReply(model, hint, depth, retry){
     let continuing=false;
     if(full.trim() || genImage){
       full=captureMemories(full);   // save & strip any [[memory: …]] the model emitted
+      const fups=followupsEnabled() ? extractFollowups(full) : null;
+      full=hideFollowups(full);     // keep the marker out of stored content
       const cvSp=splitCanvas(full);
       if(cvSp.canvas && cvSp.canvas.body.trim()){ commitCanvas(c, cvSp.canvas); openCanvasPanel(); }
       target.variants[target.vi].content=full; target.variants[target.vi].ts=now();
+      if(fups) target.variants[target.vi].fups=fups; else delete target.variants[target.vi].fups;
       if(reqSrcs) target.variants[target.vi].srcs=reqSrcs;
       if(sources.length) target.variants[target.vi].sources=sources;
       if(thinking.trim()) target.variants[target.vi].reasoning=thinking;
@@ -3401,7 +3451,7 @@ async function streamReply(model, hint, depth, retry){
     } else {
       md.innerHTML='<span style="color:var(--text-3)">No response.</span>';
     }
-    if(!continuing){ setGenerating(false); abortCtl=null; }
+    if(!continuing){ setGenerating(false); abortCtl=null; renderFollowups(); }
     scrollBottom();
   }
 }
@@ -3440,7 +3490,7 @@ function openSettingsModal(){
   $('#settings-save-btn').style.display = full ? 'inline-flex' : 'none';  // login is SSO-only — nothing to save
   const sel=$('#model-select');
   sel.innerHTML=MODELS.map(m=>`<option value="${m.id}" ${m.id===currentModel?'selected':''}>${m.name}</option>`).join('');
-  if(full){ if($('#key-input')) $('#key-input').value=getKey(); $('#ci-nickname').value=localStorage.getItem('cg_ci_nickname')||''; $('#ci-occupation').value=localStorage.getItem('cg_ci_occupation')||''; $('#ci-tone').value=localStorage.getItem('cg_ci_tone')||''; $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; renderMemoryList(); renderArchivedList(); renderSharedLinks(); renderTasksList(); refreshBalance(); }
+  if(full){ if($('#key-input')) $('#key-input').value=getKey(); $('#ci-nickname').value=localStorage.getItem('cg_ci_nickname')||''; $('#ci-occupation').value=localStorage.getItem('cg_ci_occupation')||''; $('#ci-tone').value=localStorage.getItem('cg_ci_tone')||''; $('#ci-about').value=localStorage.getItem('cg_ci_about')||''; $('#ci-style').value=localStorage.getItem('cg_ci_style')||''; $('#tts-voice-select').value=ttsVoice(); $('#conn-github').checked=connEnabled('github'); $('#conn-finance').checked=connEnabled('finance'); $('#gh-token').value=localStorage.getItem('cg_github_token')||''; if($('#followups-enabled')) $('#followups-enabled').checked=followupsEnabled(); renderMemoryList(); renderArchivedList(); renderSharedLinks(); renderTasksList(); refreshBalance(); }
   applyTheme();
   $('#settings-overlay').classList.add('open');
   if(!full){ const b=$('#login-portals button'); if(b) b.focus(); }
@@ -3484,6 +3534,7 @@ function addMemory(text){ text=(text||'').trim(); if(!text) return; if(memories.
 function deleteMemory(id){ memories=memories.filter(m=>m.id!==id); saveMemories(); }
 function clearMemories(){ memories=[]; saveMemories(); }
 function toggleMemory(on){ localStorage.setItem('cg_memory_off', on?'0':'1'); localStorage.setItem('cg_mem_ts', String(now())); scheduleSync(); }
+function setFollowups(on){ localStorage.setItem('cg_followups_off', on?'0':'1'); renderFollowups(); }
 function renderMemoryList(){
   const el=$('#memory-list'); if(!el) return;
   const chk=$('#mem-enabled'); if(chk) chk.checked=memoryEnabled();
@@ -3531,6 +3582,11 @@ function systemContext(c, lite){
   // lite (voice turns): persona + preferences + memory only — the tool
   // instruction blocks below are unusable by voice and only slow the model.
   if(lite) return out;
+  if(followupsEnabled()) out.push('Follow-up suggestions: at the VERY END of your reply, you may append '
+    +'2-3 short natural follow-up questions the user is likely to ask next, formatted EXACTLY as '
+    +'[[followups]]First question?|Second question?|Third question?[[/followups]] (pipe-separated, hidden from '
+    +'the user and rendered as clickable chips). Keep each under ~8 words. Omit them for greetings, refusals, or '
+    +'when no useful follow-up exists.');
   out.push('Interactive charts: when a chart communicates data better than prose, emit EXACTLY one block '
     +'(and keep surrounding text brief):\n[[chart]]{"type":"bar|line|pie|scatter","title":"…","data":{…}}[[/chart]]\n'
     +'- bar/line: data={"labels":["A","B"],"datasets":[{"label":"2026","values":[10,20]}]} (multiple datasets allowed)\n'
