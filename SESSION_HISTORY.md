@@ -32,6 +32,29 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-09 — LIVE mobile verification (12/12 on chatgpt.comparegpt.io)
+
+**Request:** "Please test the mobile version on the live site." Throwaway
+exchange user 184 / key `sk-pwm-g-lTv…6H9s` (id 203); Playwright at 390×844
+with touch.
+
+**Verified on the real site:** logged-out login modal shows all 4 SSO buttons
+(incl. Connect wallet) fitting the viewport, no horizontal overflow; sidebar
+starts off-canvas and the hamburger opens it flush-left with backdrop; the
+**+ menu opens as the bottom sheet** with "Add photos & files" visible and
+tappable (the 2026-07-04 fix, proven live); a **real chat turn streamed**
+("The ocean is vast…", 1.7 s — the first attempt hit a transient ~40 s
+upstream slowdown that timed out the 45 s wait and looked like an empty reply;
+a direct curl + re-run with a longer wait proved the backend and UI correct);
+no horizontal overflow after chat; model picker opens in-viewport with exactly
+Instant/Medium/High; voice button visible; zero console errors. Screenshots
+captured (login, sidebar, bottom sheet, chat).
+
+**Artifacts pruned:** user 184 + api_key 203 + pwm_token_accounts row deleted,
+6 sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-09 — LIVE voice-conversation verification (9/9 on chatgpt.comparegpt.io)
 
 **Request:** "Please test the voice conversation on the live site." Same
