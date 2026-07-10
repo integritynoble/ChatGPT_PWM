@@ -32,6 +32,26 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-10 — LIVE verification: Explore GPTs (persona confirmed)
+
+**Request:** live-verify Explore GPTs on production. Throwaway exchange user 210 /
+key `sk-pwm-I-mKQ…yLU8` (id 289).
+
+**Proven on chatgpt.comparegpt.io:** the GPTs view rendered the **Explore GPTs**
+section with all category headers and 12 curated cards; trying **Math Tutor**
+added it to the user's GPTs and opened it with its starter chips. Captured the
+live `/api/chat` payload → the **Math Tutor persona was genuinely sent**; a real
+GPT-5.6 turn on a conceptual question ("why is the derivative of x² is 2x")
+produced a proper 1442-char **step-by-step teaching** reply ("imagine increasing
+x by a small amount h…"), not a one-liner. (First probe used trivial arithmetic
+"8×7"; the tutor sensibly answered "56" directly — my assertion was too strict,
+not a feature miss.) Zero console errors.
+
+**Artifacts pruned:** user 210 + api_key 289 + pwm_token_accounts row deleted, 8
+sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-10 — Parity: Explore GPTs (curated discovery catalog)
 
 **Request:** "Continue parity." After a genuine audit (web-search sources =
