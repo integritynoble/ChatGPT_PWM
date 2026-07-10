@@ -32,6 +32,28 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-10 — Parity: custom-GPT knowledge FILES (attach library docs)
+
+**Request:** "Continue parity" (the file-based knowledge follow-up I flagged).
+ChatGPT's GPT knowledge is file uploads; ours had only a paste-text field.
+
+**Built** (`web/index.html`): the GPT editor gains a **"Knowledge files"** section
+that attaches files from the library — reuses the existing file picker via a
+`filePickTarget` flag (null → attach to composer; 'gpt' → add to the GPT), up to
+20 files, stored as `{id,name,kind}` on `g.files`. `ensureGptFiles(gid)` fetches
+each file's content (`/api/files/{id}`) into `gptFilesCache`; `systemContext()`
+injects the text content ONLY within that GPT's chats (warmed on `startGpt` and
+before each `onSend`, mirroring project files). Files ride the existing GPT sync;
+the paste-text Knowledge field still works alongside. Non-GPT chats get nothing.
+
+**Verified:** headless 10/10 — Knowledge-files section present, picker routes to
+the GPT (target flag set + reset), add shows a chip + stores the ref, the file
+content is injected into the GPT's request (secret `Orange-Vortex-99`), a plain
+chat has NO file content, and remove empties the list + persists.
+gpt-knowledge/project/record/mobile suites green. Live on both domains.
+
+---
+
 ## 2026-07-10 — LIVE verification: custom-GPT knowledge (6/6)
 
 **Request:** live-verify GPT knowledge on production. Throwaway exchange user 204
