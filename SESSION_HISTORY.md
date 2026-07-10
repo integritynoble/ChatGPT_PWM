@@ -32,6 +32,34 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-10 — Parity: custom GPTs get knowledge + conversation starters
+
+**Request:** "Continue parity." Research (OpenAI GPT-builder help/academy):
+custom GPTs support **knowledge files** (reference docs the GPT draws on, RAG)
+and **conversation starters** (3-4 example prompts shown when the GPT opens).
+Ours had name/desc/instructions only.
+
+**Built** (`web/index.html`): the GPT modal gains **Conversation starters**
+(one per line, capped at 4 → `g.starters[]`) and **Knowledge** (reference text
+→ `g.knowledge`, 20 KB cap). `systemContext()` injects a GPT's knowledge as a
+system message ONLY within that GPT's chats. The empty-chat landing for a GPT
+now shows the GPT name + description + clickable **starter chips** (click fills
+and sends) — removing the blank-page problem. Both fields hydrate on edit,
+persist on the GPT, and ride the existing GPT sync. Seeded example GPTs
+(Code Copilot / Writing Coach / Chef) gained starter sets. Non-GPT chats keep
+the default greeting and no knowledge.
+
+**Verified:** headless 14/14 — both fields present + save/hydrate, starters
+capped at 4, chips render on the GPT landing and clicking sends, GPT persona +
+knowledge injected for that GPT's request, a plain chat has NO knowledge and the
+default greeting, edit round-trips both fields. record/temp/project/followups
+suites green. Screenshot: "Support Bot" GPT landing with 4 starter chips + the
+"Chatting with" pill. (Test-env note: the empty `/api/sync` stub wipes locally
+seeded GPTs via `applySync`; production echoes the push so seeded GPTs survive.)
+Live on both domains.
+
+---
+
 ## 2026-07-09 — LIVE verification: Record mode (7/7)
 
 **Request:** live-verify Record mode on production. Throwaway exchange user 203 /
