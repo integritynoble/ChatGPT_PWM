@@ -32,6 +32,33 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-10 — Parity: share a custom GPT via link (built + LIVE 7/7)
+
+**Request:** "Continue parity." ChatGPT lets you share a custom GPT via "anyone
+with the link"; recipients can chat with / add it. We had chat share links but
+not GPT sharing.
+
+**Built** (`web/main.py` + `web/index.html`, reuses the share store): backend
+`ShareRequest` gains an optional `gpt` field; `create_share` stores it under a
+`{_gpt:…}` wrapper keyed by `gpt:<id>` (re-share updates the same link). A
+**Share** button in the GPT editor publishes the GPT (name/desc/instructions/
+starters + knowledge, with attached-file TEXT inlined so the copy is
+self-contained; private file ids never shared) and shows the link in the
+existing share dialog. Opening a `/share/<id>` whose snapshot has `_gpt` renders
+an **"Add to my GPTs"** import screen; adding stashes the config (`cg_import_gpt`)
+and, on landing, `init()` imports it as a new local GPT and opens it.
+
+**Verified:** headless 10/10 (two-browser share→import: link + `_gpt` wrapper +
+inlined knowledge, import screen with starter previews, add→import carries
+instructions/knowledge, import consumed once). **LIVE 7/7** on
+chatgpt.comparegpt.io: shared a "Riddle Bot" GPT, the public `/api/share/<id>`
+returned the `_gpt`+knowledge snapshot with NO key, a recipient (separate
+context) saw the import screen and **imported it with instructions + knowledge
+intact**. Both backends restarted; test artifacts pruned (share row deleted →
+link 404s, key dead).
+
+---
+
 ## 2026-07-10 — LIVE verification: custom-GPT knowledge files (6/6)
 
 **Request:** live-verify GPT knowledge files on production. Throwaway exchange
