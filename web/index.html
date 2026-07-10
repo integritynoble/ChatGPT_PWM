@@ -1144,6 +1144,11 @@
     <textarea id="gpt-starters" class="ci-field" rows="3" placeholder="Review my code for bugs&#10;Explain this error&#10;Write a unit test" spellcheck="false"></textarea>
     <label for="gpt-knowledge">Knowledge <span style="color:var(--text-3);font-weight:400">— reference material this GPT can draw on</span></label>
     <textarea id="gpt-knowledge" class="ci-field" rows="4" placeholder="Paste documentation, guidelines, FAQs, or other reference text…" spellcheck="false"></textarea>
+    <div class="mem-head" style="margin-top:12px">
+      <label style="margin:0">Knowledge files</label>
+      <button class="btn btn-sm btn-ghost" type="button" onclick="openGptFilePicker()">Add files</button>
+    </div>
+    <div id="gpt-files-list" class="mem-list"></div>
     <div class="row">
       <button class="btn btn-danger" id="gpt-del" style="display:none;margin-right:auto" onclick="deleteGptFromUI()">Delete</button>
       <button class="btn btn-ghost" onclick="closeGptModal()">Cancel</button>
@@ -1904,6 +1909,8 @@ async function attachLibraryFile(fid){
     input.focus();
   }catch(e){ showToast('Could not add that file'); }
 }
+let filePickTarget=null;   // null = attach to composer; 'gpt' = add to the GPT being edited
+function openGptFilePicker(){ filePickTarget='gpt'; openFilePicker(); }
 async function openFilePicker(){
   if(!getKey()){ openKeyModal(); return; }
   $('#filepick').classList.add('open');
@@ -1914,11 +1921,11 @@ async function openFilePicker(){
   files.forEach(f=>{
     const row=document.createElement('div'); row.className='file-row';
     row.innerHTML='<div class="fi">'+fileIcon(f.kind)+'</div><div class="fmeta"><div class="fname">'+escapeHtml(f.name)+'</div><div class="fsub">'+fmtSize(f.size)+'</div></div>';
-    row.onclick=()=>{ closeFilePicker(); attachLibraryFile(f.id); };
+    row.onclick=()=>{ const tgt=filePickTarget; closeFilePicker(); if(tgt==='gpt') addGptFile(f); else attachLibraryFile(f.id); };
     box.appendChild(row);
   });
 }
-function closeFilePicker(){ $('#filepick').classList.remove('open'); }
+function closeFilePicker(){ $('#filepick').classList.remove('open'); filePickTarget=null; }
 
 // ── Library (images made with "Create image") — stored in IndexedDB, since
 //    localStorage nulls generated images to stay under quota. ────────────────
@@ -2117,7 +2124,7 @@ function renderGpts(){
     <p class="gpt-sub">Custom versions of ChatGPT that combine instructions for a topic or task.</p>
     <div class="gpt-grid">${cards||'<p class="proj-empty">No GPTs yet — create one.</p>'}</div></div>`;
 }
-function startGpt(id){ const g=gptById(id); if(!g) return; pendingGptId=id; showView('chat'); updateGptContext(); showToast('Chatting with '+g.name); input.focus(); }
+function startGpt(id){ const g=gptById(id); if(!g) return; pendingGptId=id; ensureGptFiles(id); showView('chat'); updateGptContext(); showToast('Chatting with '+g.name); input.focus(); }
 // Show which GPT the current/next chat uses, with a way to clear it.
 function updateGptContext(){
   const c=activeConvo();
@@ -2130,13 +2137,42 @@ function updateGptContext(){
 function clearGptContext(){ pendingGptId=null; const c=activeConvo(); if(c) c.gptId=null; updateGptContext(); }
 
 // Create / edit GPT modal
-let editingGptId=null;
+let editingGptId=null, editingGptFiles=[];
+let gptFilesCache={};   // gptId -> [{name,kind,content}] injected into that GPT's chats
+// Reference files attached to a GPT (from the library), shown in the modal.
+function renderGptFilesList(){
+  const box=$('#gpt-files-list'); if(!box) return;
+  if(!editingGptFiles.length){ box.innerHTML='<div class="mem-empty">No files. Add reference docs this GPT can use.</div>'; return; }
+  box.innerHTML='';
+  editingGptFiles.forEach((f,i)=>{
+    const row=document.createElement('div'); row.className='mem-row';
+    row.innerHTML='<span>'+escapeHtml(f.name||'file')+'</span><button title="Remove" aria-label="Remove">✕</button>';
+    row.querySelector('button').onclick=()=>{ editingGptFiles.splice(i,1); renderGptFilesList(); };
+    box.appendChild(row);
+  });
+}
+function addGptFile(f){
+  if(editingGptFiles.some(x=>x.id===f.id)) return;
+  editingGptFiles.push({id:f.id, name:f.name, kind:f.kind}); renderGptFilesList();
+}
+async function ensureGptFiles(gid){
+  const g=gptById(gid); if(!g || !(g.files||[]).length || !getKey()){ return; }
+  if(gptFilesCache[gid]) return;
+  const out=[];
+  for(const f of g.files){
+    try{ const r=await fetch('/api/files/'+f.id,{headers:{'X-PWM-Key':getKey()}});
+      if(r.ok){ const d=await r.json(); out.push({name:d.name||f.name, kind:d.kind||f.kind, content:d.content}); } }
+    catch(e){}
+  }
+  gptFilesCache[gid]=out;
+}
 function editGpt(id){
   editingGptId=id||null;
   const g=id?gptById(id):null;
   $('#gpt-modal-title').textContent=g?'Edit GPT':'Create a GPT';
   $('#gpt-name').value=g?g.name:''; $('#gpt-desc').value=g?(g.desc||''):''; $('#gpt-instructions').value=g?(g.instructions||''):'';
   $('#gpt-starters').value=g&&g.starters?g.starters.join('\n'):''; $('#gpt-knowledge').value=g?(g.knowledge||''):'';
+  editingGptFiles=(g&&g.files)?g.files.slice():[]; renderGptFilesList();
   $('#gpt-del').style.display=g?'inline-flex':'none';
   $('#gpt-overlay').classList.add('open'); $('#gpt-name').focus();
 }
@@ -2146,8 +2182,9 @@ function saveGpt(){
   const desc=$('#gpt-desc').value.trim(), instructions=$('#gpt-instructions').value.trim();
   const starters=$('#gpt-starters').value.split('\n').map(s=>s.trim()).filter(Boolean).slice(0,4);
   const knowledge=$('#gpt-knowledge').value.trim().slice(0,20000);
-  if(editingGptId){ const g=gptById(editingGptId); if(g){ g.name=name; g.desc=desc; g.instructions=instructions; g.starters=starters; g.knowledge=knowledge; g.uts=now(); } }
-  else { gpts.push({id:'gpt_'+now()+'_'+Math.random().toString(36).slice(2,6), name, desc, instructions, starters, knowledge, ts:now()}); }
+  const files=editingGptFiles.slice(0,20);
+  if(editingGptId){ const g=gptById(editingGptId); if(g){ g.name=name; g.desc=desc; g.instructions=instructions; g.starters=starters; g.knowledge=knowledge; g.files=files; g.uts=now(); delete gptFilesCache[g.id]; } }
+  else { gpts.push({id:'gpt_'+now()+'_'+Math.random().toString(36).slice(2,6), name, desc, instructions, starters, knowledge, files, ts:now()}); }
   saveGpts(); closeGptModal(); if(currentView==='gpts') renderGpts(); updateGptContext();
 }
 function deleteGptFromUI(){
@@ -3433,6 +3470,7 @@ async function onSend(e){
   if(studyMode) c.studyOn=true; // keep Study mode armed for this conversation
   ciStopped=false;
   if(c.projectId && !projectFilesCache[c.projectId]) await ensureProjectFiles(c.projectId);
+  if(c.gptId && !gptFilesCache[c.gptId]) await ensureGptFiles(c.gptId);
   const um={role:'user',content:text,ts:now()}; if(atts.length) um.atts=atts;
   c.messages.push(um);
   c.messages.push({role:'assistant',variants:[{content:'',ts:now()}],vi:0});
@@ -3760,6 +3798,12 @@ function systemContext(c, lite){
   if(c && c.gptId){ const g=gptById(c.gptId);
     if(g && (g.instructions||g.name)) out.push('You are "'+g.name+'", a custom GPT. '+(g.instructions||''));
     if(g && (g.knowledge||'').trim()) out.push('Reference knowledge for "'+g.name+'" — draw on it when relevant, and say so when you rely on it:\n\n'+g.knowledge.trim());
+    if(g && gptFilesCache[c.gptId] && gptFilesCache[c.gptId].length){
+      const gf=gptFilesCache[c.gptId], texts=gf.filter(f=>f.content && f.kind!=='image');
+      if(texts.length){ let s='Knowledge files for "'+g.name+'" — reference material; use them when relevant:';
+        texts.forEach(f=>{ s+='\n\n[File: '+f.name+']\n'+String(f.content).slice(0,50000); });
+        out.push(s); }
+    }
   }
   // Project instructions override global custom instructions — but only inside
   // that project (ChatGPT Projects behavior).
