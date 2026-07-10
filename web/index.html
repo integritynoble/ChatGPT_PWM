@@ -1151,6 +1151,7 @@
     <div id="gpt-files-list" class="mem-list"></div>
     <div class="row">
       <button class="btn btn-danger" id="gpt-del" style="display:none;margin-right:auto" onclick="deleteGptFromUI()">Delete</button>
+      <button class="btn btn-ghost" id="gpt-share" style="display:none" onclick="shareGpt()">Share</button>
       <button class="btn btn-ghost" onclick="closeGptModal()">Cancel</button>
       <button class="btn btn-primary" onclick="saveGpt()">Save</button>
     </div>
@@ -2174,6 +2175,7 @@ function editGpt(id){
   $('#gpt-starters').value=g&&g.starters?g.starters.join('\n'):''; $('#gpt-knowledge').value=g?(g.knowledge||''):'';
   editingGptFiles=(g&&g.files)?g.files.slice():[]; renderGptFilesList();
   $('#gpt-del').style.display=g?'inline-flex':'none';
+  $('#gpt-share').style.display=g?'inline-flex':'none';
   $('#gpt-overlay').classList.add('open'); $('#gpt-name').focus();
 }
 function closeGptModal(){ $('#gpt-overlay').classList.remove('open'); }
@@ -3376,6 +3378,28 @@ function syncVoiceMuteUI(){
 // ── Hosted share links (public read-only snapshots via /api/share) ──────
 let currentShareId=null, sharedView=false;
 
+// Share a custom GPT via "anyone with the link" — the recipient can add it to
+// their own GPTs. Attached-file knowledge is inlined so the copy is self-contained.
+async function shareGpt(){
+  if(!editingGptId){ showToast('Save the GPT first'); return; }
+  if(!getKey()){ showToast('Log in to share'); openKeyModal(); return; }
+  const g=gptById(editingGptId); if(!g) return;
+  try{
+    await ensureGptFiles(g.id);
+    let knowledge=(g.knowledge||'').trim();
+    const gf=gptFilesCache[g.id]||[];
+    gf.filter(f=>f.content && f.kind!=='image').forEach(f=>{ knowledge+=(knowledge?'\n\n':'')+'[File: '+f.name+']\n'+String(f.content).slice(0,50000); });
+    const payload={id:g.id, name:g.name, desc:g.desc||'', instructions:g.instructions||'', starters:g.starters||[], knowledge};
+    const resp=await fetch('/api/share',{method:'POST',
+      headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
+      body:JSON.stringify({gpt:payload})});
+    if(!resp.ok){ const e=await resp.json().catch(()=>({})); throw new Error(e.detail||'Could not create link'); }
+    const st=await resp.json();
+    currentShareId=st.id;
+    $('#share-url').value=location.origin+st.url;
+    $('#share-overlay').classList.add('open');
+  }catch(e){ showToast(e.message||'Could not create link'); }
+}
 async function shareChat(){
   const c=activeConvo(); if(!c||!c.messages.length) return;
   if(!getKey()){ showToast('Log in to create a share link'); openKeyModal(); return; }
@@ -3433,6 +3457,7 @@ async function initSharedView(id){
     const resp=await fetch('/api/share/'+id);
     if(!resp.ok) throw new Error();
     const st=await resp.json();
+    if(st.convo && st.convo._gpt){ initSharedGpt(st.convo._gpt); return; }   // this is a shared GPT
     const c=st.convo||{}; c.id=c.id||'shared';
     convos=[c]; activeId=c.id;
     $('#shared-title').textContent=c.title||'Shared conversation';
@@ -3444,6 +3469,29 @@ async function initSharedView(id){
     $('#shared-continue').style.display='none';
     thread.innerHTML='<div class="feature"><h2>This link is unavailable</h2><p>The shared conversation may have been deleted by its owner.</p></div>';
   }
+}
+// Public "add this GPT" screen for a shared-GPT link.
+let __sharedGpt=null;
+function initSharedGpt(g){
+  __sharedGpt=g;
+  $('#shared-title').textContent=g.name||'Shared GPT';
+  $('#shared-date').textContent='Custom GPT';
+  const cont=$('#shared-continue'); if(cont){ cont.textContent='Add to my GPTs'; cont.style.display='block'; cont.onclick=addSharedGpt; }
+  const stHtml=(g.starters||[]).length ? '<div class="gpt-starters" style="pointer-events:none">'+g.starters.slice(0,4).map(s=>`<button class="starter-chip">${escapeHtml(s)}</button>`).join('')+'</div>' : '';
+  thread.innerHTML='<div class="feature"><div class="ficon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>'
+    +'<h2>'+escapeHtml(g.name||'Custom GPT')+'</h2>'
+    +(g.desc?'<p>'+escapeHtml(g.desc)+'</p>':'')
+    +stHtml+'</div>';
+}
+function addSharedGpt(){
+  if(!__sharedGpt) return;
+  if(!getKey()){ localStorage.setItem('cg_import_gpt', JSON.stringify(__sharedGpt)); showToast('Sign in to add this GPT'); location.href='/'; return; }
+  const g=__sharedGpt;
+  const ng={id:'gpt_'+now()+'_'+Math.random().toString(36).slice(2,6), name:g.name||'Custom GPT',
+    desc:g.desc||'', instructions:g.instructions||'', starters:g.starters||[], knowledge:g.knowledge||'', ts:now()};
+  // land on the app, then import + open the GPT
+  localStorage.setItem('cg_import_gpt', JSON.stringify(ng));
+  location.href='/';
 }
 function continueShared(){
   const c=window.__sharedConvo; if(!c) return;
@@ -4355,6 +4403,15 @@ function initA11y(){
   seedGpts();
   if(/Mac|iP(hone|ad|od)/.test(navigator.platform)) document.querySelectorAll('.kbd.modk').forEach(k=>k.textContent='⌘');
   pickModel(currentModel);
+  // A shared GPT the user chose to add (from a /share/<id> GPT link).
+  const impRaw=localStorage.getItem('cg_import_gpt');
+  if(impRaw){ localStorage.removeItem('cg_import_gpt');
+    try{ const ng=JSON.parse(impRaw);
+      if(!ng.id) ng.id='gpt_'+now()+'_'+Math.random().toString(36).slice(2,6);
+      if(!gpts.some(x=>x.id===ng.id)){ ng.ts=ng.ts||now(); gpts.push(ng); saveGpts(); }
+      setTimeout(()=>{ startGpt(ng.id); showToast('Added "'+(ng.name||'GPT')+'" to your GPTs'); }, 300);
+    }catch(e){}
+  }
   renderThread(); renderChatList(); updateAccount(); setLanding();
   updateComposerButtons();
   if(window.innerWidth<=768) $('#sidebar').classList.add('collapsed');

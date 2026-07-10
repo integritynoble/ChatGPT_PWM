@@ -1339,7 +1339,8 @@ def _share_auth(req: Request):
 
 
 class ShareRequest(BaseModel):
-    convo: dict
+    convo: dict | None = None
+    gpt: dict | None = None
 
 
 @app.post("/api/share")
@@ -1348,10 +1349,19 @@ async def create_share(req: Request, body: ShareRequest):
     check = await pwm_billing.check_balance(pwm_key)
     if not check.valid:
         raise HTTPException(status_code=401, detail=check.reason)
-    convo_id = str(body.convo.get("id") or "")
-    if not convo_id or not body.convo.get("messages"):
+    # A GPT share carries its config under a "_gpt" wrapper in the same store.
+    if body.gpt is not None:
+        gid = str(body.gpt.get("id") or "")
+        if not gid or not body.gpt.get("name"):
+            raise HTTPException(status_code=400, detail="Nothing to share.")
+        convo_id = "gpt:" + gid
+        payload = {"_gpt": body.gpt}
+    elif body.convo is not None and body.convo.get("id") and body.convo.get("messages"):
+        convo_id = str(body.convo.get("id"))
+        payload = body.convo
+    else:
         raise HTTPException(status_code=400, detail="Nothing to share.")
-    data = json.dumps(body.convo)
+    data = json.dumps(payload)
     if len(data) > SYNC_MAX_ITEM_BYTES:
         raise HTTPException(status_code=413, detail="Conversation too large to share.")
     conn = _sync_db()
