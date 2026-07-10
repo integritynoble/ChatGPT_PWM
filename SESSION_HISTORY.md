@@ -32,6 +32,23 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-10 — LIVE verification: image editing (9/9, real edit round-trip)
+
+**Request:** live-verify image editing on production. Throwaway exchange user 211
+/ key `sk-pwm-lErMe…SS6E` (20 credits, image gen is pricier).
+
+**Proven on chatgpt.comparegpt.io** with a full real round-trip: armed image gen
+→ generated a **real image** ("flat illustration of a red apple on white", 1.08 MB
+data URL) → the generated image showed an **Edit** button → clicking it attached
+the image + armed image gen → sent "add a small green leaf on top" → a **second,
+DIFFERENT edited image** came back (`src2 != src1`, both 1 MB+ data URLs).
+Screenshot shows the apple-with-leaf edit. Zero console errors.
+
+**Artifacts pruned:** user 211 + api_key 292 + pwm_token_accounts row deleted, 6
+sync/file rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-10 — Parity: image editing (refine a generated/library image)
 
 **Request:** "Continue parity." I'd flagged image editing as infra-bound — but
