@@ -32,6 +32,30 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-10 — GPT-5.5 + GPT-5.4 added to the picker; in-chat find LIVE (12/12)
+
+**Request:** live-verify in-chat find on production, and make GPT-5.5 + 5.4
+available.
+
+**GPT-5.5/5.4** (`web/openai_subscription.py` + `web/index.html`): probed the
+subscription — `gpt-5.5`/`gpt-5.4`/`gpt-5.4-mini` all generate, bogus 400s
+(genuine access). The picker now lists **5 models**: GPT-5.6 Sol/Terra/Luna,
+GPT-5.5, GPT-5.4. Backend map: `gpt-5.5`→`gpt-5.5` and `gpt-5.4`→`gpt-5.4` (real
+pass-through, no longer aliased to 5.6); the internal effort aliases
+(`gpt-5.5-instant`→5.6-terra low, `gpt-5.5-thinking`→5.6-sol high) still drive
+the voice fast lane + deep research unchanged. Both backends restarted.
+
+**LIVE verified (12/12) on chatgpt.comparegpt.io:**
+- **Models:** picker lists all 5; **GPT-5.5** routes to `gpt-5.5` and **GPT-5.4**
+  to `gpt-5.4` with real generation (`MODEL55-OK` / `MODEL54-OK`).
+- **In-chat find:** Ctrl+F opened the find bar over a real reply, 6 "banana"
+  matches highlighted, count `1/6`, active hit marked, ‹ ›/nav advanced to `2`,
+  close removed all highlights. Zero console errors.
+
+Test artifacts pruned (8 sync rows, key dead).
+
+---
+
 ## 2026-07-10 — Parity: in-chat find (Cmd/Ctrl+F, highlight + navigate)
 
 **Request:** "Continue parity." Research confirmed the big remaining ChatGPT
