@@ -32,6 +32,28 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-10 — Parity: image editing (refine a generated/library image)
+
+**Request:** "Continue parity." I'd flagged image editing as infra-bound — but
+tested the subscription and found it FEASIBLE: `image_generation` edits an input
+image (blue 64×64 square + "add a yellow circle" → returned an edited image). The
+backend already passes `input_image` parts, so this was just a UX layer.
+
+**Built** (`web/index.html`): an **Edit** button on generated images (inline,
+appears on hover) and in the **Library lightbox**. `editImage(url)` attaches the
+image, arms image generation (clears other tools), and hints the composer
+("Describe your edit — e.g. make the sky a sunset orange"). The next turn sends
+the image as an `image_url`/`input_image` part with `image_gen=true`, so the
+model returns an edited image.
+
+**Verified:** headless 9/9 — inline + lightbox Edit buttons, Edit attaches the
+image + arms image_gen + sets the composer hint, the edit turn's request carries
+the input image AND image_gen, and the edited image renders. The
+subscription-level edit was proven directly (real edited image returned).
+explore/find/voice suites green. Live on both domains.
+
+---
+
 ## 2026-07-10 — LIVE verification: Explore GPTs (persona confirmed)
 
 **Request:** live-verify Explore GPTs on production. Throwaway exchange user 210 /
