@@ -32,6 +32,25 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-10 — LIVE verification: custom-GPT knowledge (6/6)
+
+**Request:** live-verify GPT knowledge on production. Throwaway exchange user 204
+/ key `sk-pwm-72Su_…lY2U` (id 276).
+
+**Proven on chatgpt.comparegpt.io** with a secret that could ONLY come from the
+injected knowledge: created an "Acme Helpdesk" GPT whose knowledge held a made-up
+WiFi password (`ZanzibarPelican-4417`) + mascot (a llama named Kevin). Starter
+chips rendered. Asking inside the GPT, **real GPT-5.6 answered from the knowledge**
+— "The office Wi‑Fi password is ZanzibarPelican-4417." and "The mascot is a llama
+named Kevin." A **plain chat (no GPT) said "I do not know the Acme office Wi‑Fi
+password"** — the secret did NOT leak, proving the knowledge is scoped to the GPT.
+Zero console errors.
+
+**Artifacts pruned:** user 204 + api_key 276 + pwm_token_accounts row deleted, 8
+sync rows purged, key now returns "Invalid PWM key." live.
+
+---
+
 ## 2026-07-10 — Parity: custom GPTs get knowledge + conversation starters
 
 **Request:** "Continue parity." Research (OpenAI GPT-builder help/academy):
