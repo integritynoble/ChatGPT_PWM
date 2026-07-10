@@ -602,6 +602,11 @@
   .chip .thumb{width:34px;height:34px;border-radius:7px;object-fit:cover;flex-shrink:0}
   .bubble-img{max-width:240px;max-height:260px;border-radius:14px;display:block;border:1px solid var(--border)}
   .gen-img{max-width:min(100%,420px);border-radius:14px;margin:8px 0;display:block;border:1px solid var(--border)}
+  .gen-img-wrap{position:relative;display:inline-block}
+  .gen-img-edit{position:absolute;bottom:16px;right:8px;display:flex;align-items:center;gap:5px;padding:6px 10px;
+                font-size:12px;color:#fff;background:rgba(0,0,0,.6);border-radius:8px;opacity:0;transition:opacity .15s}
+  .gen-img-wrap:hover .gen-img-edit{opacity:1}
+  .gen-img-edit:hover{background:rgba(0,0,0,.8)}
 
   /* scroll-to-bottom */
   #to-bottom{position:absolute;left:50%;transform:translateX(-50%);bottom:96px;width:34px;height:34px;
@@ -1133,6 +1138,7 @@
     <img id="lightbox-img" src="" alt="">
     <div class="lightbox-cap" id="lightbox-cap"></div>
     <div class="lightbox-bar">
+      <button class="btn btn-sm btn-ghost" id="lightbox-edit">Edit</button>
       <a class="btn btn-sm btn-ghost" id="lightbox-dl" href="#" download>Download</a>
       <button class="btn btn-sm btn-danger" id="lightbox-del">Delete</button>
       <button class="btn btn-sm btn-ghost" onclick="closeLightbox()">Close</button>
@@ -1990,11 +1996,28 @@ async function renderLibrary(){
   const cells=imgs.map(im=>`<figure class="lib-cell" onclick="libraryOpen('${im.id}')"><img src="${im.url}" loading="lazy" alt=""><figcaption>${escapeHtml(im.caption||'')}</figcaption></figure>`).join('');
   thread.innerHTML=`<div class="lib-wrap"><h2 class="lib-title">Library</h2><div class="lib-grid">${cells}</div></div>`;
 }
+// Image editing: attach an image + arm image generation, so the next turn edits
+// it (the subscription's image_generation tool edits an input image). ChatGPT's
+// "Edit image".
+function editImage(url){
+  if(!url) return;
+  if(!getKey()){ showToast('Sign in to continue'); openKeyModal(); return; }
+  if(currentGroup){ showToast('Image editing works in personal chats'); return; }
+  closeLightbox();
+  if(currentView!=='chat') showView('chat');
+  attachments.push({name:'image-to-edit.png', kind:'image', url});
+  renderAttachments();
+  imageGen=true; codeInterp=false; webSearch=false; deepResearch=false; canvasMode=false; syncToolUI();
+  input.placeholder='Describe your edit — e.g. “make the sky a sunset orange”';
+  autosize(input); input.focus();
+  showToast('Describe how to change the image, then send');
+}
 async function libraryOpen(id){
   const im=(await libraryAll()).find(x=>x.id===id); if(!im) return;
   $('#lightbox-img').src=im.url;
   $('#lightbox-cap').textContent=im.caption||'';
   const dl=$('#lightbox-dl'); dl.href=im.url; dl.download=(im.caption||'image').replace(/[^\w.-]+/g,'_').slice(0,40)+'.png';
+  const ed=$('#lightbox-edit'); if(ed) ed.onclick=()=>editImage(im.url);
   $('#lightbox-del').onclick=async()=>{ await libraryDelete(id); closeLightbox(); renderLibrary(); };
   $('#lightbox').classList.add('open');
 }
@@ -2867,7 +2890,7 @@ function renderMessage(m, idx){
     const rsn=(m.variants&&m.variants[m.vi]&&m.variants[m.vi].reasoning)||'';
     const rsnHtml = rsn ? `<details class="reasoning"><summary>Thought process</summary><div class="rt">${escapeHtml(rsn)}</div></details>` : '';
     const gimg=(m.variants&&m.variants[m.vi]&&m.variants[m.vi].image)||'';
-    const gimgHtml = gimg ? `<img class="gen-img" src="${gimg}">` : '';
+    const gimgHtml = gimg ? `<div class="gen-img-wrap"><img class="gen-img" src="${gimg}"><button class="gen-img-edit" title="Edit this image" data-editimg="1"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Edit</button></div>` : '';
     msg.innerHTML=`<div class="col">${rsnHtml}<div class="markdown"></div>
         ${cardHtml}
         ${gimgHtml}
@@ -2885,6 +2908,7 @@ function renderMessage(m, idx){
     const md=msg.querySelector('.markdown');
     if(content){ md.innerHTML=renderMarkdown(renderChartMarkers(hideFollowups(hideTaskCall(hideConnCall(renderRunnable(content)))))); enhance(md); }
     msg.querySelector('.act-copy').onclick=(e)=>copyBtn(e.currentTarget, content);
+    const eb=msg.querySelector('[data-editimg]'); if(eb) eb.onclick=()=>editImage(gimg);
     if(m.rating==='up') msg.querySelector('.act-good').classList.add('ok');
     if(m.rating==='down') msg.querySelector('.act-bad').classList.add('ok');
     msg.querySelector('.act-good').onclick=()=>{ m.rating=m.rating==='up'?null:'up'; touchConvo(activeConvo()); persist(); renderThread(); };
