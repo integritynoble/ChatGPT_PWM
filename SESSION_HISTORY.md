@@ -32,6 +32,32 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-10 — Parity: Explore GPTs (curated discovery catalog)
+
+**Request:** "Continue parity." After a genuine audit (web-search sources =
+footer chips like ChatGPT; reasoning = collapsible; branching/regenerate present),
+the one visible remaining piece was ChatGPT's **"Explore GPTs"** discovery page —
+ours only showed the user's own GPTs.
+
+**Built** (`web/index.html`): the GPTs view now shows **Your GPTs** + an **Explore
+GPTs** section — a curated `EXPLORE_GPTS` catalog of 12 example GPTs grouped by
+category (Research & Analysis / Productivity / Education / Programming / Writing /
+Lifestyle), each with instructions + conversation starters. `tryExploreGpt(id)`
+adds it to the user's GPTs (persists + syncs) and opens it; once added it moves
+out of Explore into Your GPTs. No live marketplace backend exists, so the catalog
+is an honest built-in curated set (not a fake live store).
+
+**Verified:** headless 9/9 — Explore section + all category headers, 12 explore
+cards, try→add+open with starters shown + persona injected into the request, and
+an added GPT leaves Explore for Your GPTs. gpt-knowledge/gpt-share/find suites
+green. Screenshot matches ChatGPT's GPTs landing. Live on both domains.
+
+**Parity status:** the consumer surface is now comprehensively covered; the
+remaining ChatGPT items are infra-bound (Atlas browser, full-duplex GPT-Live
+voice, Work agent, live GPT Store marketplace, image inpainting).
+
+---
+
 ## 2026-07-10 — GPT-5.5 + GPT-5.4 added to the picker; in-chat find LIVE (12/12)
 
 **Request:** live-verify in-chat find on production, and make GPT-5.5 + 5.4
