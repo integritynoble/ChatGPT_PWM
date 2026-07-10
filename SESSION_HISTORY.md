@@ -32,6 +32,26 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-10 — LIVE verification: custom-GPT knowledge files (6/6)
+
+**Request:** live-verify GPT knowledge files on production. Throwaway exchange
+user 205 / key `sk-pwm-YbIYU…E1bg` (id 280).
+
+**Proven on chatgpt.comparegpt.io** with a secret only the file could hold:
+**uploaded a real file** to the live library (`POST /api/files`, id
+`b14184e…`) containing a made-up shutdown phrase (`Marigold-Tango-6631`) +
+backup site (Reykjavik); attached it to a "Field GPT"; asking inside the GPT,
+**real GPT-5.6 answered from the file** — "The emergency shutdown phrase is
+Marigold-Tango-6631." and "The backup site is in Reykjavik." A **plain chat
+(no GPT) said "I do not know"** — the file content did NOT leak, proving it's
+scoped to the GPT. Zero console errors.
+
+**Artifacts pruned:** user 205 + api_key 280 + pwm_token_accounts row deleted;
+the uploaded library file + 9 sync/file rows purged; key now returns "Invalid
+PWM key." live.
+
+---
+
 ## 2026-07-10 — Parity: custom-GPT knowledge FILES (attach library docs)
 
 **Request:** "Continue parity" (the file-based knowledge follow-up I flagged).
