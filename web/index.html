@@ -292,6 +292,8 @@
   /* GPTs */
   .gpt-wrap{max-width:var(--maxw);margin:0 auto;padding:20px 16px 60px}
   .gpt-sub{color:var(--text-2);font-size:14px;margin:-8px 0 18px}
+  .gpt-cat{font-size:14px;font-weight:600;color:var(--text-2);margin:20px 0 10px}
+  .gpt-explore h2{font-size:20px;font-weight:600}
   .gpt-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
   .gpt-card{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;border:1px solid var(--border);
         background:var(--hover);color:var(--text);text-align:left;cursor:pointer;transition:background .15s}
@@ -2133,18 +2135,55 @@ function seedGpts(){
   }
   localStorage.setItem('cg_gpts_seeded','1');
 }
+// Curated "Explore GPTs" catalog — a discovery experience (ChatGPT's GPT store).
+// Trying one adds it to your GPTs so it persists + syncs, then opens it.
+const EXPLORE_GPTS=[
+  {id:'x_research', cat:'Research & Analysis', name:'Research Assistant', desc:'Break down topics with sources and structure.', instructions:'You are a rigorous research assistant. Structure answers with clear sections, weigh evidence, note uncertainty, and suggest sources to verify.', starters:['Summarize the debate on this topic','What does the evidence say about…','Draft a literature-review outline','Compare these two approaches']},
+  {id:'x_data', cat:'Research & Analysis', name:'Data Analyst', desc:'Explore data, stats, and charts.', instructions:'You are a careful data analyst. Explain methods, check assumptions, and describe how to compute results; use the code interpreter for real calculations when enabled.', starters:['Explain which statistical test to use','How do I read this chart?','Design an A/B test','Interpret these results']},
+  {id:'x_negotiator', cat:'Productivity', name:'Negotiation Coach', desc:'Prep for tough conversations.', instructions:'You are a pragmatic negotiation coach. Help set goals and BATNA, script openings, anticipate objections, and stay calm and specific.', starters:['Help me ask for a raise','Prep me for a vendor negotiation','How do I say no politely?','Draft a counter-offer']},
+  {id:'x_planner', cat:'Productivity', name:'Project Planner', desc:'Turn goals into a plan.', instructions:'You are a crisp project planner. Break goals into milestones, tasks, owners, and timelines; flag risks and dependencies.', starters:['Plan a product launch','Break this goal into tasks','Build a 30-60-90 day plan','What could go wrong here?']},
+  {id:'x_tutor', cat:'Education', name:'Math Tutor', desc:'Learn step by step.', instructions:'You are a patient math tutor. Teach step by step with guiding questions; give hints before answers and check understanding.', starters:['Explain derivatives simply','Walk me through this problem','Give me a practice question','Why does this formula work?']},
+  {id:'x_lang', cat:'Education', name:'Language Partner', desc:'Practice a new language.', instructions:'You are a friendly language partner. Converse at the learner’s level, gently correct mistakes, and explain grammar briefly.', starters:['Let’s practice Spanish','Correct my sentence','Teach me 5 useful phrases','Quiz me on vocabulary']},
+  {id:'x_dev', cat:'Programming', name:'Debugging Buddy', desc:'Find and fix bugs.', instructions:'You are a sharp debugging partner. Ask for the error and context, reason about likely causes, and give a minimal fix with an explanation.', starters:['Why is this code failing?','Explain this stack trace','Review this function','Make this faster']},
+  {id:'x_sql', cat:'Programming', name:'SQL Helper', desc:'Write and explain queries.', instructions:'You are a SQL expert. Write correct, readable queries, explain joins and indexes, and warn about performance pitfalls.', starters:['Write a query for this','Explain this JOIN','Optimize this slow query','Design a table schema']},
+  {id:'x_story', cat:'Writing', name:'Storyteller', desc:'Craft stories and characters.', instructions:'You are an imaginative storyteller. Help develop plots, characters, and vivid prose; offer choices and keep momentum.', starters:['Start a short story','Develop this character','Give me a plot twist','Describe this setting']},
+  {id:'x_email', cat:'Writing', name:'Email Polish', desc:'Write clearer emails, fast.', instructions:'You turn rough notes into clear, appropriately-toned emails. Keep them concise, with a clear ask and subject line.', starters:['Draft a follow-up email','Make this more polite','Shorten this email','Write a subject line']},
+  {id:'x_fitness', cat:'Lifestyle', name:'Fitness Coach', desc:'Workouts and habits.', instructions:'You are an encouraging fitness coach. Suggest safe, realistic workouts and habits for the person’s goals and equipment; remind them you are not a doctor.', starters:['Build a beginner workout','A 20-minute home routine','How do I stay consistent?','Plan my week']},
+  {id:'x_travel', cat:'Lifestyle', name:'Trip Planner', desc:'Plan your next trip.', instructions:'You are a savvy trip planner. Suggest itineraries by interest, budget, and time; balance highlights with downtime and note practical tips.', starters:['Plan a 3-day city trip','Budget-friendly ideas for…','What should I pack?','A relaxed itinerary for two']},
+];
+let __exploreGpt=null;
+function tryExploreGpt(id){
+  const src=EXPLORE_GPTS.find(g=>g.id===id) || (__exploreGpt&&__exploreGpt.id===id?__exploreGpt:null); if(!src) return;
+  let g=gpts.find(x=>x.id===src.id);
+  if(!g){ g={id:src.id, name:src.name, desc:src.desc, instructions:src.instructions, starters:(src.starters||[]).slice(0,4), ts:now()}; gpts.push(g); saveGpts(); }
+  startGpt(g.id);
+}
 function renderGpts(){
   $('#view-title').textContent='GPTs';
-  const cards=gpts.slice().sort((a,b)=>(a.ts||0)-(b.ts||0)).map(g=>`
-    <div class="gpt-card" onclick="startGpt('${g.id}')">
+  const mine=gpts.slice().sort((a,b)=>(a.ts||0)-(b.ts||0));
+  const mineIds=new Set(mine.map(g=>g.id));
+  const card=(g,explore)=>`
+    <div class="gpt-card" onclick="${explore?`tryExploreGpt('${g.id}')`:`startGpt('${g.id}')`}">
       <div class="gpt-ava">${escapeHtml((g.name||'?').trim().slice(0,1).toUpperCase())}</div>
       <div class="gpt-info"><div class="gpt-name">${escapeHtml(g.name||'Untitled')}</div><div class="gpt-desc">${escapeHtml(g.desc||'')}</div></div>
-      <button class="gpt-edit" title="Edit" onclick="event.stopPropagation();editGpt('${g.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
-    </div>`).join('');
+      ${explore?'':`<button class="gpt-edit" title="Edit" onclick="event.stopPropagation();editGpt('${g.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>`}
+    </div>`;
+  const mineCards=mine.map(g=>card(g,false)).join('');
+  // Explore, grouped by category; skip ones already in the user's list.
+  const cats=[]; EXPLORE_GPTS.forEach(g=>{ if(!cats.includes(g.cat)) cats.push(g.cat); });
+  const explore=cats.map(cat=>{
+    const items=EXPLORE_GPTS.filter(g=>g.cat===cat && !mineIds.has(g.id));
+    if(!items.length) return '';
+    return `<h3 class="gpt-cat">${escapeHtml(cat)}</h3><div class="gpt-grid">${items.map(g=>card(g,true)).join('')}</div>`;
+  }).join('');
   thread.innerHTML=`<div class="gpt-wrap"><div class="proj-head"><h2>GPTs</h2>
       <button class="btn btn-sm btn-primary" onclick="editGpt('')">+ Create a GPT</button></div>
     <p class="gpt-sub">Custom versions of ChatGPT that combine instructions for a topic or task.</p>
-    <div class="gpt-grid">${cards||'<p class="proj-empty">No GPTs yet — create one.</p>'}</div></div>`;
+    <h3 class="gpt-cat">Your GPTs</h3>
+    <div class="gpt-grid">${mineCards||'<p class="proj-empty">No GPTs yet — create one or try one below.</p>'}</div>
+    <div class="gpt-explore"><h2 style="margin-top:26px">Explore GPTs</h2>
+      <p class="gpt-sub">Discover and try GPTs for research, writing, coding, learning, and more.</p>
+      ${explore}</div></div>`;
 }
 function startGpt(id){ const g=gptById(id); if(!g) return; pendingGptId=id; ensureGptFiles(id); showView('chat'); updateGptContext(); showToast('Chatting with '+g.name); input.focus(); }
 // Show which GPT the current/next chat uses, with a way to clear it.
