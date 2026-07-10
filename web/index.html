@@ -288,6 +288,11 @@
   .gpt-ava{width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--accent-fg);
         display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600;flex-shrink:0}
   .gpt-info{flex:1;min-width:0}
+  .gpt-hero-desc{font-size:14px;color:var(--text-3);margin-top:6px;max-width:460px;text-align:center}
+  .gpt-starters{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:22px;max-width:600px}
+  .starter-chip{padding:12px 16px;border:1px solid var(--border);border-radius:14px;background:var(--composer);
+                font-size:14px;color:var(--text-2);text-align:left;max-width:260px;transition:background .12s,color .12s}
+  .starter-chip:hover{background:var(--hover);color:var(--text)}
   .gpt-info .gpt-name{font-size:15px;font-weight:600}
   .gpt-info .gpt-desc{font-size:12.5px;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .gpt-edit{width:28px;height:28px;border-radius:8px;color:var(--text-3);display:flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -1135,6 +1140,10 @@
     <input id="gpt-desc" type="text" placeholder="What does this GPT do?" style="font-family:var(--font)" autocomplete="off" spellcheck="false">
     <label for="gpt-instructions">Instructions</label>
     <textarea id="gpt-instructions" class="ci-field" rows="5" placeholder="How should it behave? What should it focus on or avoid?" spellcheck="false"></textarea>
+    <label for="gpt-starters">Conversation starters <span style="color:var(--text-3);font-weight:400">— one per line, shown when the GPT opens</span></label>
+    <textarea id="gpt-starters" class="ci-field" rows="3" placeholder="Review my code for bugs&#10;Explain this error&#10;Write a unit test" spellcheck="false"></textarea>
+    <label for="gpt-knowledge">Knowledge <span style="color:var(--text-3);font-weight:400">— reference material this GPT can draw on</span></label>
+    <textarea id="gpt-knowledge" class="ci-field" rows="4" placeholder="Paste documentation, guidelines, FAQs, or other reference text…" spellcheck="false"></textarea>
     <div class="row">
       <button class="btn btn-danger" id="gpt-del" style="display:none;margin-right:auto" onclick="deleteGptFromUI()">Delete</button>
       <button class="btn btn-ghost" onclick="closeGptModal()">Cancel</button>
@@ -1532,10 +1541,25 @@ function setLanding(){
   const empty = activeMsgs().length===0;
   document.body.classList.toggle('landing', empty);
   const sb=$('#share-btn'); if(sb) sb.style.display = (empty||tempMode) ? 'none' : 'flex';
-  const g=$('#greeting');
-  if(g) g.innerHTML = tempMode
-    ? `<div class="temp-hero"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><h1>Temporary Chat</h1><p>This chat won't appear in history and won't be saved on this device.</p></div>`
-    : `<svg class="hero-logo" width="46" height="46"><use href="#oai"/></svg><h1>What can I help with?</h1>`;
+  const g=$('#greeting'); if(!g) return;
+  if(tempMode){
+    g.innerHTML=`<div class="temp-hero"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg><h1>Temporary Chat</h1><p>This chat won't appear in history and won't be saved on this device.</p></div>`;
+    return;
+  }
+  // GPT landing with conversation starters (removes the blank-page problem)
+  const ac=activeConvo();
+  const gid=(ac&&ac.gptId)||pendingGptId||null;
+  const gpt=gid?gptById(gid):null;
+  if(empty && gpt){
+    let h=`<svg class="hero-logo" width="46" height="46"><use href="#oai"/></svg><h1>${escapeHtml(gpt.name||'Custom GPT')}</h1>`;
+    if(gpt.desc) h+=`<p class="gpt-hero-desc">${escapeHtml(gpt.desc)}</p>`;
+    if(gpt.starters&&gpt.starters.length)
+      h+=`<div class="gpt-starters">`+gpt.starters.slice(0,4).map(s=>`<button class="starter-chip">${escapeHtml(s)}</button>`).join('')+`</div>`;
+    g.innerHTML=h;
+    g.querySelectorAll('.starter-chip').forEach((b,i)=>{ b.onclick=()=>{ input.value=gpt.starters[i]; autosize(input); onSend(); }; });
+    return;
+  }
+  g.innerHTML=`<svg class="hero-logo" width="46" height="46"><use href="#oai"/></svg><h1>What can I help with?</h1>`;
 }
 
 function dateGroup(ts){
@@ -2072,9 +2096,9 @@ function seedGpts(){
   if(localStorage.getItem('cg_gpts_seeded')) return;
   if(!gpts.length){
     gpts=[
-      {id:'gpt_code', name:'Code Copilot', desc:'Write, debug, and explain code.', instructions:'You are an expert programmer. Give correct, idiomatic, runnable code with brief explanations. Point out edge cases and gotchas.', ts:1},
-      {id:'gpt_writer', name:'Writing Coach', desc:'Sharpen your writing and tone.', instructions:'You are a sharp writing coach. Improve clarity, concision, and tone. Offer concrete rewrites and explain the key changes briefly.', ts:2},
-      {id:'gpt_chef', name:'Chef', desc:'Recipes from what you have.', instructions:'You are a friendly chef. Suggest recipes from the ingredients and constraints given, with clear steps and quantities.', ts:3},
+      {id:'gpt_code', name:'Code Copilot', desc:'Write, debug, and explain code.', instructions:'You are an expert programmer. Give correct, idiomatic, runnable code with brief explanations. Point out edge cases and gotchas.', starters:['Review my code for bugs','Explain this error message','Write unit tests for this function','Refactor this for readability'], ts:1},
+      {id:'gpt_writer', name:'Writing Coach', desc:'Sharpen your writing and tone.', instructions:'You are a sharp writing coach. Improve clarity, concision, and tone. Offer concrete rewrites and explain the key changes briefly.', starters:['Tighten this paragraph','Make this sound more professional','Fix the grammar and flow','Suggest a stronger opening line'], ts:2},
+      {id:'gpt_chef', name:'Chef', desc:'Recipes from what you have.', instructions:'You are a friendly chef. Suggest recipes from the ingredients and constraints given, with clear steps and quantities.', starters:['What can I make with chicken and rice?','A quick 20-minute dinner','Use up these leftovers','A vegetarian meal for two'], ts:3},
     ];
     saveGpts();
   }
@@ -2112,6 +2136,7 @@ function editGpt(id){
   const g=id?gptById(id):null;
   $('#gpt-modal-title').textContent=g?'Edit GPT':'Create a GPT';
   $('#gpt-name').value=g?g.name:''; $('#gpt-desc').value=g?(g.desc||''):''; $('#gpt-instructions').value=g?(g.instructions||''):'';
+  $('#gpt-starters').value=g&&g.starters?g.starters.join('\n'):''; $('#gpt-knowledge').value=g?(g.knowledge||''):'';
   $('#gpt-del').style.display=g?'inline-flex':'none';
   $('#gpt-overlay').classList.add('open'); $('#gpt-name').focus();
 }
@@ -2119,8 +2144,10 @@ function closeGptModal(){ $('#gpt-overlay').classList.remove('open'); }
 function saveGpt(){
   const name=$('#gpt-name').value.trim(); if(!name){ $('#gpt-name').focus(); return; }
   const desc=$('#gpt-desc').value.trim(), instructions=$('#gpt-instructions').value.trim();
-  if(editingGptId){ const g=gptById(editingGptId); if(g){ g.name=name; g.desc=desc; g.instructions=instructions; g.uts=now(); } }
-  else { gpts.push({id:'gpt_'+now()+'_'+Math.random().toString(36).slice(2,6), name, desc, instructions, ts:now()}); }
+  const starters=$('#gpt-starters').value.split('\n').map(s=>s.trim()).filter(Boolean).slice(0,4);
+  const knowledge=$('#gpt-knowledge').value.trim().slice(0,20000);
+  if(editingGptId){ const g=gptById(editingGptId); if(g){ g.name=name; g.desc=desc; g.instructions=instructions; g.starters=starters; g.knowledge=knowledge; g.uts=now(); } }
+  else { gpts.push({id:'gpt_'+now()+'_'+Math.random().toString(36).slice(2,6), name, desc, instructions, starters, knowledge, ts:now()}); }
   saveGpts(); closeGptModal(); if(currentView==='gpts') renderGpts(); updateGptContext();
 }
 function deleteGptFromUI(){
@@ -3730,7 +3757,10 @@ function captureMemories(text){
 // Combined system context for a conversation: GPT persona + custom instructions + memory.
 function systemContext(c, lite){
   const out=[];
-  if(c && c.gptId){ const g=gptById(c.gptId); if(g && (g.instructions||g.name)) out.push('You are "'+g.name+'", a custom GPT. '+(g.instructions||'')); }
+  if(c && c.gptId){ const g=gptById(c.gptId);
+    if(g && (g.instructions||g.name)) out.push('You are "'+g.name+'", a custom GPT. '+(g.instructions||''));
+    if(g && (g.knowledge||'').trim()) out.push('Reference knowledge for "'+g.name+'" — draw on it when relevant, and say so when you rely on it:\n\n'+g.knowledge.trim());
+  }
   // Project instructions override global custom instructions — but only inside
   // that project (ChatGPT Projects behavior).
   const proj=(c && c.projectId) ? projectById(c.projectId) : null;
