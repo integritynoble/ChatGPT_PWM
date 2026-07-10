@@ -32,6 +32,31 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-10 — Parity: in-chat find (Cmd/Ctrl+F, highlight + navigate)
+
+**Request:** "Continue parity." Research confirmed the big remaining ChatGPT
+items are infra-bound (Atlas browser, full-duplex GPT-Live voice, Work agent,
+GPT Store, image inpainting). A feasible client-side gap: ChatGPT's **in-chat
+find** (Cmd/Ctrl+F highlights + navigates matches within the conversation) — we
+only had cross-chat sidebar search.
+
+**Built** (`web/index.html`): Cmd/Ctrl+F opens a floating find bar over the
+current chat (falls through to the browser's native find when no chat is open,
+and skips group/shared views). Live search highlights every match — a
+`TreeWalker` wraps matching text nodes in `<mark class="find-hit">` (skips
+actions/script/style/existing marks), shows `n/total`, navigates with ‹ › /
+Enter / Shift+Enter (wraps), and scrolls the active hit into view. Esc or ✕
+closes and **fully unwraps the marks** (text restored via replace + normalize —
+no corruption). `renderThread` re-applies an open find over the rebuilt DOM.
+
+**Verified:** headless 14/14 — open, all 3 matches highlighted, count, active
+hit, **body text intact through highlight**, next/wrap, requery, no-match 0/0,
+close removes marks + restores text, zero errors. gpt-share/record/charts/
+followups suites green. Screenshot matches ChatGPT's find bar. Live on both
+domains.
+
+---
+
 ## 2026-07-10 — Parity: share a custom GPT via link (built + LIVE 7/7)
 
 **Request:** "Continue parity." ChatGPT lets you share a custom GPT via "anyone
