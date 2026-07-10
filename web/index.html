@@ -1284,6 +1284,8 @@ const MODELS=[
   {id:'gpt-5.6-sol', name:'GPT-5.6 Sol', sub:'Sol', desc:'Most capable — best for hard problems'},
   {id:'gpt-5.6-terra', name:'GPT-5.6 Terra', sub:'Terra', desc:'Fast and balanced for everyday tasks'},
   {id:'gpt-5.6-luna', name:'GPT-5.6 Luna', sub:'Luna', desc:'Lightweight and efficient'},
+  {id:'gpt-5.5', name:'GPT-5.5', sub:'5.5', desc:'Previous generation'},
+  {id:'gpt-5.4', name:'GPT-5.4', sub:'5.4', desc:'Older, fast and lightweight'},
 ];
 let currentModel = localStorage.getItem('cg_model') || 'gpt-5.6-sol';
 if(!MODELS.some(m=>m.id===currentModel)) currentModel='gpt-5.6-sol';   // migrate retired ids (5.5/5.4, effort levels)

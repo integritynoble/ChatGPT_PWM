@@ -48,7 +48,7 @@ AUTH_FILE = Path(
 # levels map onto tiers: Instant→Terra (fast), Medium/High→Sol (top tier, with
 # low/default/high reasoning effort set from the -instant/-thinking suffix).
 DEFAULT_MODEL = "gpt-5.6-sol"
-SUPPORTED_MODELS = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"]
+SUPPORTED_MODELS = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4"]
 _MODEL_MAP = {
     # Friendly aliases → real backend slug
     "gpt-4o": "gpt-5.6-sol",
@@ -64,13 +64,13 @@ _MODEL_MAP = {
     "gpt-5.6-sol": "gpt-5.6-sol",
     "gpt-5.6-terra": "gpt-5.6-terra",
     "gpt-5.6-luna": "gpt-5.6-luna",
-    # Simplified picker → 5.6 tier + effort (effort from the suffix, below)
-    "gpt-5.5": "gpt-5.6-sol",            # Medium → Sol (default effort)
-    "gpt-5.5-thinking": "gpt-5.6-sol",   # High → Sol (high effort)
-    "gpt-5.5-instant": "gpt-5.6-terra",  # Instant → Terra (fast; low effort)
-    # Legacy 5.4/5.5 native slugs still resolve (older synced prefs)
-    "gpt-5.4": "gpt-5.6-terra",
-    "gpt-5.4-mini": "gpt-5.6-terra",
+    # Prior generations still selectable in the picker (subscription serves them)
+    "gpt-5.5": "gpt-5.5",
+    "gpt-5.4": "gpt-5.4",
+    "gpt-5.4-mini": "gpt-5.4-mini",
+    # Internal effort aliases (voice fast lane / deep research) → 5.6 tier + effort
+    "gpt-5.5-thinking": "gpt-5.6-sol",    # deep research → Sol (high effort via suffix)
+    "gpt-5.5-instant": "gpt-5.6-terra",   # voice fast lane → Terra (low effort via suffix)
 }
 
 
