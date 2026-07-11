@@ -32,6 +32,23 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity polish: keyboard-shortcuts help kept in sync
+
+**Request:** "continue to make it the same as ChatGPT." The shortcuts help modal
+(Ctrl//) had drifted — it didn't list several working shortcuts.
+
+**Frontend (`index.html`):** added rows for **Edit last message** (↑),
+**Stop generating** (Esc), and **Find in chat** (Ctrl/⌘+F) to `#shortcuts-overlay`,
+so the help reflects the actual shortcuts (incl. the two just added this session).
+
+**Verified (no generation needed — subscription still rate-limited):** headless
+`test_shortcuts.py` 6/6 — the three new rows are listed, the existing ones remain,
+and **Ctrl+F genuinely opens in-chat find** (so the help doesn't advertise a
+non-working shortcut). Live on chatgpt.comparegpt.io: all three new entries present
+in the modal.
+
+---
+
 ## 2026-07-11 — Parity: Escape stops generation
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT stops the
