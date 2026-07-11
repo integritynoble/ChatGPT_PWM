@@ -32,6 +32,31 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — LIVE verification: code-interpreter file download (7/7)
+
+**Request:** live-verify the file download on production. Throwaway exchange user
+212 / key `sk-pwm-DHfY0hJ…U9xM` (20 PWM; minted directly into the platform DB —
+`users` + `api_keys` (sha256 key_hash) + `pwm_token_accounts`).
+
+**Proven on chatgpt.comparegpt.io** with a full real round-trip: armed the code
+interpreter → asked for "a pandas DataFrame of 3 fruits with prices saved to
+/work/out/fruits.xlsx" → the **real model wrote & ran the Python** in the live
+Docker sandbox → an **Analysis** tool block rendered with `Created
+/work/out/fruits.xlsx` and a `fruits.xlsx 5 KB ⬇` download row → the reply read
+"Your Excel file is ready: **Download fruits.xlsx**" → **clicking the button
+downloaded a real 5451-byte file whose header is `PK`** (valid xlsx/zip). The file
+blob is stored on the tool run and stripped from the sync payload. Zero console
+errors. Screenshot: `live_ci_files.png`.
+
+Pre-flight also confirmed the key validated on the prod platform (balance 20.0)
+and the live 8200 `/api/run` produced `cities.xlsx` (5430 bytes) with the key.
+
+**Artifacts pruned:** platform user 212 + api_key + pwm_token_accounts +
+transactions deleted (key now returns **401** live); the one synced `items` row
+(fruits convo) purged from `chatgpt-sync/sync.db`. No residual.
+
+---
+
 ## 2026-07-11 — Parity: downloadable files from the code interpreter
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT's code interpreter
