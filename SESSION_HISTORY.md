@@ -32,6 +32,28 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Deploy verification vs pushed code (found + fixed stale 8201)
+
+**Request:** verify production matches the pushed code (HEAD 59c1d3b).
+
+- **Frontend `index.html`**: byte-identical (sha256 `d89812e1…`) across repo,
+  both live dirs, AND both served domains (comparegpt.io + platformai.org). ✓
+- **Backend `.py`** (main/openai_subscription/pwm_billing): match repo ↔ both live
+  dirs; working tree clean vs `origin/main`. ✓
+- **Running processes**: 8200 (systemd `chatgpt-pwm`) was restarted after the last
+  backend change ✓. **8201 was STALE** — its `chatgpt-pwm-dev.service` process
+  (started 16:08) predated the current `openai_subscription.py` (mtime 19:17), so
+  platformai.org's backend lacked the citation-offset forwarding (earlier session
+  `pkill`s had missed the systemd-managed unit). **Fixed:** `systemctl restart
+  chatgpt-pwm-dev`; re-probed 8201 web search → source events now carry
+  start/end offsets (2/2). Both backends healthy (200).
+
+Lesson: 8201 is managed by **`chatgpt-pwm-dev.service`** — restart it with
+`systemctl restart chatgpt-pwm-dev`, not `pkill`, or backend changes silently
+don't take effect there.
+
+---
+
 ## 2026-07-11 — LIVE regression sweep (10/10 on production, real generation)
 
 **Request:** run a full live sweep once the pooled ChatGPT subscription's usage
