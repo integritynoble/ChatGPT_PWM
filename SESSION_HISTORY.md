@@ -32,6 +32,30 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: download button on generated images (built + LIVE)
+
+**Request:** "continue to make it the same as ChatGPT." Generated images had only
+an inline **Edit** button; the Download was buried in the library lightbox.
+ChatGPT shows a download right on the image.
+
+**Frontend (`index.html`):** the generated-image overlay is now a `.gen-img-bar`
+holding a **Download** icon button (`data-dlimg`) + the existing **Edit** button.
+A small `downloadDataUrl(url, name)` helper anchors a `download` link (handles
+`data:`/`blob:` URLs) → saves `chatgpt-image.png`.
+
+**LIVE on chatgpt.comparegpt.io** (rendered through the deployed pipeline): a
+generated image shows both Download + Edit; clicking Download saved
+`chatgpt-image.png` (verified via `expect_download`). Headless
+`test_img_download.py` 6/6; task-list/math/branch regressions green.
+
+**Bonus — cleared a false alarm:** `test_image_edit.py` had started failing on
+"edit request has image_gen". Root cause was NOT image editing (it works) but the
+new **auto-title** feature adding a second `/api/chat` call after the first turn,
+so `CHAT[-1]` was the title request, not the edit. Fixed the test to pick the
+`image_gen` request; image editing re-confirmed 9/9.
+
+---
+
 ## 2026-07-11 — Parity polish: GFM task-list checkboxes (built + LIVE)
 
 **Request:** "continue to make it the same as ChatGPT." A render audit
