@@ -32,6 +32,28 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: Share in the sidebar chat menu (built + LIVE)
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT's sidebar chat
+"…" menu has **Share**; ours only had Pin/Rename/Add-to-project/Archive/Delete
+(share was header-only, active-chat-only).
+
+**Frontend (`index.html`, no backend change):** added a **Share** item to
+`chatItemMenu` and made `shareChat(id)` accept an optional convo id — so you can
+share any chat from the sidebar **without switching to it** (falls back to the
+active chat when called with no id, as the header button does).
+
+**LIVE on chatgpt.comparegpt.io** (throwaway user): kept chat A active, opened
+chat B's "…" menu → **Share** → a real link `…/share/iwEMBTxDyvOI78EP` was created,
+the app **stayed on chat A**, and opening the link in a browser rendered B's
+conversation ("hello there"). Headless `test_sidebar_share.py` 5/5. img-viewer/
+quote/branch/feedback regressions green.
+
+**Artifacts pruned:** platform user + key + account deleted (key **401**); the
+share row + sync rows purged (share URL now **404**).
+
+---
+
 ## 2026-07-11 — Parity: click any inline image to enlarge (built + LIVE)
 
 **Request:** "continue to make it the same as ChatGPT." Inline images (generated
