@@ -32,6 +32,35 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: thumbs-down feedback dialog (built + LIVE 8/8)
+
+**Request:** "continue to make it the same as ChatGPT." In ChatGPT, 👎 opens a
+"Tell us more:" form with quick-pick reasons + an optional comment; ours only
+toggled a rating flag.
+
+**Frontend (`index.html`, no backend change):** `feedbackPopover(m, anchor)` — a
+`.fb-pop` popover with six reason chips (Don't like the style / Not factually
+correct / Didn't fully follow instructions / Refused when it shouldn't have / Not
+helpful / More creativity needed), an optional "(Optional) What would the ideal
+answer have been?" textarea, and Cancel/Submit. `act-bad` now opens the form
+(instead of a bare toggle); Submit stores `m.feedback={reasons,note,ts}` +
+`m.rating='down'` and re-highlights the button; clicking 👎 again clears both.
+Reopening pre-selects the saved reasons/note.
+
+**LIVE end-to-end on chatgpt.comparegpt.io** (throwaway user 215, key
+`sk-pwm-YBhDbk3…kJ6E`, 10 PWM): real turn "say hello in one word" → **"Hello!"** →
+clicked 👎 → the "Tell us more:" form appeared with all reason chips → picked a
+reason, typed "Wanted a longer greeting.", Submit → feedback stored on the message
+(`reasons:['Not factually correct']`, note kept) and 👎 shown active. Screenshot:
+`live_feedback.png`. Headless `test_feedback.py` 11/11 (opens form, chips, no
+rating pre-submit, stores reasons+note, active state, toggle-off); branch +
+mention regressions still green. Zero errors.
+
+**Artifacts pruned:** platform user 215 + api_key + token account + transactions
+deleted (key now **401**); sync rows purged. No residual.
+
+---
+
 ## 2026-07-11 — Parity: Branch in new chat (built + LIVE 8/8)
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT's assistant

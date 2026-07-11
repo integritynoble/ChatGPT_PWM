@@ -218,6 +218,17 @@
   .src-gone{color:var(--text-3);font-size:12px;flex-shrink:0}
   .src-row button[title="Forget"]{color:var(--text-3);flex-shrink:0;padding:2px 6px;border-radius:6px}
   .src-row button[title="Forget"]:hover{color:var(--danger);background:var(--hover)}
+  /* thumbs-down feedback popover */
+  .fb-pop{width:344px;max-width:calc(100vw - 24px)}
+  .fb-pop .fb-title{padding:8px 10px 6px;font-size:14px;font-weight:500;color:var(--text)}
+  .fb-chips{display:flex;flex-wrap:wrap;gap:6px;padding:2px 10px 8px}
+  .fb-chip{font-size:12.5px;padding:5px 10px;border:1px solid var(--border);border-radius:16px;
+    color:var(--text);cursor:pointer;background:none;white-space:nowrap}
+  .fb-chip:hover{background:var(--menu-hover)}
+  .fb-chip.on{background:rgba(126,182,255,.14);border-color:#7eb6ff;color:#7eb6ff}
+  .fb-pop textarea{width:calc(100% - 20px);margin:0 10px;background:none;border:1px solid var(--border);
+    border-radius:10px;color:var(--text);font-family:var(--font);font-size:13px;padding:8px;resize:none;outline:none}
+  .fb-actions{display:flex;justify-content:flex-end;gap:8px;padding:8px 10px 6px}
   .plus-item .info{display:flex;flex-direction:column;min-width:0}
   .plus-item .info .t{font-size:14px;font-weight:500}
   .plus-item .info .d{font-size:12px;color:var(--text-3);margin-top:1px}
@@ -2948,7 +2959,9 @@ function renderMessage(m, idx){
     if(m.rating==='up') msg.querySelector('.act-good').classList.add('ok');
     if(m.rating==='down') msg.querySelector('.act-bad').classList.add('ok');
     msg.querySelector('.act-good').onclick=()=>{ m.rating=m.rating==='up'?null:'up'; touchConvo(activeConvo()); persist(); renderThread(); };
-    msg.querySelector('.act-bad').onclick=()=>{ m.rating=m.rating==='down'?null:'down'; touchConvo(activeConvo()); persist(); renderThread(); };
+    msg.querySelector('.act-bad').onclick=(e)=>{ e.stopPropagation();
+      if(m.rating==='down'){ m.rating=null; delete m.feedback; touchConvo(activeConvo()); persist(); renderThread(); }
+      else feedbackPopover(m, e.currentTarget); };
     msg.querySelector('.act-read').onclick=(e)=>readAloud(content, e.currentTarget);
     const vSrcs=m.variants && m.variants[m.vi] && m.variants[m.vi].srcs;
     if(vSrcs && !sharedView){
@@ -3005,6 +3018,37 @@ function srcPopover(srcs, anchor){
 function copyBtn(btn, text){
   navigator.clipboard.writeText(text||'');
   btn.classList.add('ok'); setTimeout(()=>btn.classList.remove('ok'),1200);
+}
+
+// Thumbs-down feedback (ChatGPT parity): 👎 opens a short "tell us more" form
+// with quick-pick reasons + an optional comment, stored on the message.
+const FB_REASONS=["Don't like the style","Not factually correct","Didn't fully follow instructions",
+  "Refused when it shouldn't have","Not helpful","More creativity needed"];
+function feedbackPopover(m, anchor){
+  const open=document.querySelector('.pop.transient'); closeAllPops();
+  if(open && open.classList.contains('fb-pop')) return;
+  const pop=document.createElement('div'); pop.className='pop transient open fb-pop';
+  const r=anchor.getBoundingClientRect();
+  pop.style.top=(r.bottom+6)+'px';
+  pop.style.left=Math.max(8, Math.min(r.left-150, window.innerWidth-356))+'px';
+  const cur=(m.feedback&&m.feedback.reasons)||[];
+  pop.innerHTML=`<div class="fb-title">Tell us more:</div>
+    <div class="fb-chips">${FB_REASONS.map(t=>`<button class="fb-chip${cur.includes(t)?' on':''}" data-r="${escapeHtml(t)}">${escapeHtml(t)}</button>`).join('')}</div>
+    <textarea rows="2" placeholder="(Optional) What would the ideal answer have been?"></textarea>
+    <div class="fb-actions"><button class="btn btn-ghost btn-sm" data-fb="cancel">Cancel</button>
+      <button class="btn btn-primary btn-sm" data-fb="submit">Submit</button></div>`;
+  pop.addEventListener('click',ev=>ev.stopPropagation());
+  document.body.appendChild(pop);
+  const ta=pop.querySelector('textarea'); if(m.feedback&&m.feedback.note) ta.value=m.feedback.note;
+  const picked=new Set(cur);
+  pop.querySelectorAll('.fb-chip').forEach(b=>b.onclick=()=>{ const t=b.dataset.r;
+    if(picked.has(t)){picked.delete(t);b.classList.remove('on');} else {picked.add(t);b.classList.add('on');} });
+  pop.querySelector('[data-fb="cancel"]').onclick=()=>closeAllPops();
+  pop.querySelector('[data-fb="submit"]').onclick=()=>{
+    m.rating='down'; m.feedback={reasons:[...picked], note:ta.value.trim(), ts:now()};
+    touchConvo(activeConvo()); persist(); closeAllPops(); renderThread();
+    showToast('Thanks for your feedback');
+  };
 }
 
 function startEdit(idx, msgEl){
