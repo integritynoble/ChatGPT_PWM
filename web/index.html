@@ -556,6 +556,12 @@
   .searching .spin{width:15px;height:15px;border:2px solid var(--text-3);border-top-color:transparent;
                    border-radius:50%;animation:spin .8s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
+  /* inline web-search citations */
+  .markdown sup.cite{line-height:0;margin:0 1px}
+  .markdown sup.cite a{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;
+    padding:0 4px;font-size:10.5px;font-weight:600;border-radius:5px;background:var(--hover);color:var(--text-2);
+    text-decoration:none;vertical-align:1px}
+  .markdown sup.cite a:hover{background:var(--menu-hover);color:var(--text)}
   .sources{margin-top:14px}
   .sources-h{font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:8px}
   .src-list{display:flex;flex-wrap:wrap;gap:8px}
@@ -2667,6 +2673,28 @@ const CHART_PALETTE=['#4e79a7','#f28e2b','#59a14f','#e15759','#b07aa1','#76b7b2'
 function chartColor(i){ return CHART_PALETTE[i % CHART_PALETTE.length]; }
 // Replace complete [[chart]] blocks with placeholder divs (base64 spec);
 // hide a trailing incomplete block while it is still streaming.
+// Inline web-search citations (ChatGPT parity): place a numbered [[cite:N|url]]
+// marker at each annotation's end offset in the raw model output. Insert from the
+// end backwards so earlier offsets stay valid; number unique URLs by first use.
+function insertCitations(text, citations, sources){
+  const order=(sources||[]).map(s=>s.url);
+  const numOf=(url)=>{ let i=order.indexOf(url); if(i<0){ order.push(url); i=order.length-1; } return i+1; };
+  const marks=[]; const seen=new Set();
+  citations.forEach(c=>{ if(!Number.isInteger(c.end)) return; const n=numOf(c.url);
+    const key=c.end+'|'+n; if(seen.has(key)) return; seen.add(key); marks.push({pos:c.end, n, url:c.url}); });
+  marks.sort((a,b)=>b.pos-a.pos);
+  let out=text;
+  marks.forEach(m=>{ const p=Math.max(0, Math.min(m.pos, out.length));
+    out = out.slice(0,p) + `[[cite:${m.n}|${m.url}]]` + out.slice(p); });
+  return out;
+}
+// Render the [[cite:N|url]] markers as small superscript source links.
+const CITE_RE=/\[\[cite:(\d+)\|([^\]]+)\]\]/g;
+function renderCite(text){
+  return String(text).replace(CITE_RE,(_,n,url)=>
+    `<sup class="cite"><a href="${encodeURI(url)}" target="_blank" rel="noopener noreferrer" title="Source ${n}">${n}</a></sup>`);
+}
+function stripCite(text){ return String(text).replace(CITE_RE,''); }
 function renderChartMarkers(text){
   CHART_RE.lastIndex=0;
   let out=text.replace(CHART_RE,(_,body)=>{
@@ -3153,8 +3181,8 @@ function renderMessage(m, idx){
         </div>
       </div>`;
     const md=msg.querySelector('.markdown');
-    if(content){ md.innerHTML=renderMarkdown(renderChartMarkers(hideFollowups(hideTaskCall(hideConnCall(renderRunnable(content)))))); enhance(md); }
-    msg.querySelector('.act-copy').onclick=(e)=>copyBtn(e.currentTarget, content);
+    if(content){ md.innerHTML=renderMarkdown(renderCite(renderChartMarkers(hideFollowups(hideTaskCall(hideConnCall(renderRunnable(content))))))); enhance(md); }
+    msg.querySelector('.act-copy').onclick=(e)=>copyBtn(e.currentTarget, stripCite(content));
     const eb=msg.querySelector('[data-editimg]'); if(eb) eb.onclick=()=>editImage(gimg);
     const dib=msg.querySelector('[data-dlimg]'); if(dib) dib.onclick=()=>downloadDataUrl(gimg, 'chatgpt-image.png');
     const gimEl=msg.querySelector('img.gen-img'); if(gimEl) gimEl.onclick=()=>openImageViewer(gimg,{editable:true});
@@ -3164,7 +3192,7 @@ function renderMessage(m, idx){
     msg.querySelector('.act-bad').onclick=(e)=>{ e.stopPropagation();
       if(m.rating==='down'){ m.rating=null; delete m.feedback; touchConvo(activeConvo()); persist(); renderThread(); }
       else feedbackPopover(m, e.currentTarget); };
-    msg.querySelector('.act-read').onclick=(e)=>readAloud(content, e.currentTarget);
+    msg.querySelector('.act-read').onclick=(e)=>readAloud(stripCite(content), e.currentTarget);
     const vSrcs=m.variants && m.variants[m.vi] && m.variants[m.vi].srcs;
     if(vSrcs && !sharedView){
       const sb=msg.querySelector('.act-src');
@@ -4177,7 +4205,7 @@ async function streamReply(model, hint, depth, retry, opts){
   markLast(); scrollBottom(true);
   setGenerating(true);
   abortCtl=new AbortController();
-  let full=cont ? (msgText(target)||'') : ''; let firstToken=false; let raf=null; let sources=[]; let thinking=''; let genImage=''; let streamErr=null; let httpStatus=0; let truncated=false; let reasonStart=now(), reasonEnd=0, thinkTimer=null;
+  let full=cont ? (msgText(target)||'') : ''; let firstToken=false; let raf=null; let sources=[]; let citations=[]; let thinking=''; let genImage=''; let streamErr=null; let httpStatus=0; let truncated=false; let reasonStart=now(), reasonEnd=0, thinkTimer=null;
   // Hide any trailing [[memory: …]] marker from the live view (kept out of display).
   const forDisplay=(t)=>t.replace(/\n*\[\[\s*memory\s*:[^\]]*\]?\]?\s*$/i,'');
   const paint=()=>{
@@ -4186,7 +4214,7 @@ async function streamReply(model, hint, depth, retry, opts){
       streamCanvasLive(sp.canvas);
       md.innerHTML=renderMarkdown(sp.chat)+canvasCardHtml(sp.canvas.title, sp.open);
     } else {
-      md.innerHTML=renderMarkdown(renderChartMarkers(hideFollowups(hideTaskCall(hideConnCall(renderRunnable(forDisplay(full)))))));
+      md.innerHTML=renderMarkdown(renderCite(renderChartMarkers(hideFollowups(hideTaskCall(hideConnCall(renderRunnable(forDisplay(full))))))));
       // Render math live so it doesn't show as raw LaTeX while streaming. Only for
       // a modest amount (heavy proofs defer to the final render) to keep paint cheap.
       const mc=(full.match(/\\\(|\\\[|\$\$/g)||[]).length;
@@ -4237,7 +4265,10 @@ async function streamReply(model, hint, depth, retry, opts){
         try{
           const o=JSON.parse(d);
           if(o.status==='searching' && !firstToken){ md.innerHTML='<div class="searching"><span class="spin"></span> Searching the web…</div>'; }
-          if(o.source && /^https?:\/\//.test(o.source.url) && !sources.some(s=>s.url===o.source.url)) sources.push(o.source);
+          if(o.source && /^https?:\/\//.test(o.source.url)){
+            if(Number.isInteger(o.source.end)) citations.push(o.source);   // has a text offset → inline citation
+            if(!sources.some(s=>s.url===o.source.url)) sources.push(o.source);
+          }
           if(o.reasoning){ thinking+=o.reasoning; if(!firstToken){ let live=md.querySelector('.reasoning-live .rt'); if(!live){ md.innerHTML='<div class="reasoning-live"><div class="rh"><span class="spin"></span> Thinking…</div><div class="rt"></div></div>'; live=md.querySelector('.reasoning-live .rt'); if(!thinkTimer) thinkTimer=setInterval(()=>{ const rh=md.querySelector('.reasoning-live .rh'); if(rh) rh.innerHTML='<span class="spin"></span> Thinking… ('+Math.max(1,Math.round((now()-reasonStart)/1000))+'s)'; }, 500); } live.textContent=thinking; scrollBottom(); } }
           if(o.status==='generating_image' && !firstToken){ md.innerHTML='<div class="searching"><span class="spin"></span> Creating image…</div>'; }
           if(o.image){ genImage=o.image; let im=msgEl.querySelector('.gen-img'); if(!im){ if(md.querySelector('.thinking,.searching,.reasoning-live')) md.innerHTML=''; im=document.createElement('img'); im.className='gen-img'; const col=md.parentElement; col.insertBefore(im, col.querySelector('.actions')); } im.src=genImage; scrollBottom(); }
@@ -4276,6 +4307,7 @@ async function streamReply(model, hint, depth, retry, opts){
     }
     let continuing=false;
     if(full.trim() || genImage){
+      if(citations.length) full=insertCitations(full, citations, sources);  // inline [1] markers (offsets → text)
       full=captureMemories(full);   // save & strip any [[memory: …]] the model emitted
       const fups=followupsEnabled() ? extractFollowups(full) : null;
       full=hideFollowups(full);     // keep the marker out of stored content

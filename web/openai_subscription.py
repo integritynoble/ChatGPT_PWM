@@ -406,9 +406,12 @@ async def _translate_line(line: str, model: str) -> AsyncIterator[bytes]:
     elif etype == "response.output_text.annotation.added":
         anno = event.get("annotation") or {}
         if anno.get("type") == "url_citation" and anno.get("url"):
-            yield ("data: " + json.dumps(
-                {"source": {"title": anno.get("title") or anno.get("url"), "url": anno.get("url")}}
-            ) + "\n\n").encode()
+            src = {"title": anno.get("title") or anno.get("url"), "url": anno.get("url")}
+            # forward character offsets (into the output text) when present, so the
+            # UI can place inline numbered citations like ChatGPT.
+            if isinstance(anno.get("start_index"), int): src["start"] = anno["start_index"]
+            if isinstance(anno.get("end_index"), int): src["end"] = anno["end_index"]
+            yield ("data: " + json.dumps({"source": src}) + "\n\n").encode()
     elif etype == "response.incomplete":
         # Hit the output cap (or another incomplete reason) — tell the UI the
         # answer was cut off so it can offer "Continue generating".

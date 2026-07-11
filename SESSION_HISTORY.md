@@ -32,6 +32,38 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: inline web-search citations (built + LIVE)
+
+**Request:** "continue to make it the same as ChatGPT." Web-search replies showed
+only a bottom "Sources" card list; ChatGPT also drops small numbered ¹ citations
+inline right after the supported text.
+
+**Verified feasibility first (systematic-debugging):** the ChatGPT Responses API's
+`url_citation` annotations DO carry `start_index`/`end_index` into the output text
+(probed a real "population of Tokyo" search → offsets 292/399, 468/575, …). Only
+then built on it.
+
+**Backend (`openai_subscription.py`):** forward `start`/`end` on each `source`
+event when present. **Frontend (`index.html`):** collect all offset-bearing
+`citations`; at finalize, `insertCitations()` numbers unique URLs by first use and
+splices `[[cite:N|url]]` markers into the raw output at each `end` offset
+(back-to-front so offsets stay valid); `renderCite()` in the render pipeline turns
+them into `<sup class="cite"><a target="_blank">N</a></sup>`. `stripCite()` keeps
+the markers out of copy/read-aloud; the bottom Sources list stays.
+
+**LIVE on chatgpt.comparegpt.io** (throwaway user, real web search "population of
+Tokyo"): **2 inline ¹ citations** rendered after the cited sentences, each a
+new-tab link to metro.tokyo.lg.jp, with the Sources card below and **no raw
+`[[cite:` markers**. Screenshot `live_citations.png`. Headless `test_citations.py`
+8/8 (2 numbered citations at correct offsets, links, Sources list, markers stored
++ stripped for copy); math/stream-math/uparrow/quote/branch + edge-audit
+regressions green.
+
+**Artifacts pruned:** citation-test users + keys + accounts deleted (key **401**);
+sync rows purged.
+
+---
+
 ## 2026-07-11 — Parity: ↑ in an empty composer edits your last message (LIVE)
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT (and shells) let
