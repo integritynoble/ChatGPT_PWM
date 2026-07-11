@@ -32,6 +32,36 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: smart conversation titles (built + LIVE 6/6)
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT names each chat
+with a concise summary; ours used the raw first message truncated to 48 chars.
+
+**Frontend (`index.html`, no backend change):** `maybeAutoTitle(c)` runs once after
+the first turn completes (in the `!continuing` done-block, skipped for
+voice/temp/shared/continuations). It makes a lightweight `/api/chat` call
+(`gpt-5.6-luna`, terse system prompt) to generate a 3–6 word Title-Case summary of
+the opener, strips quotes/punctuation, and applies it — but only if ≤10 words and
+the user hasn't renamed the chat since (captured `seedTitle` guard). Sets
+`c.autoTitled` so it never re-fires.
+
+**LIVE end-to-end on chatgpt.comparegpt.io** (throwaway user, opener "…beginner-
+friendly recipe for authentic Italian pasta carbonara?"): the sidebar title became
+**"Authentic Italian Carbonara Recipe"** (was the raw "Hey there! Could you…").
+Backend probe confirmed the luna title call returns clean titles. Screenshot:
+`live_autotitle.png`. Headless `test_autotitle.py` 5/5 (upgrades to concise title,
+runs once, sidebar reflects it, second turn doesn't re-title); math/think-time/
+continue/branch regressions green.
+
+**Debug note:** first live run read the title too early — `autoTitled` is set at the
+*start* of `maybeAutoTitle` (before the async fetch), so it's not a completion
+signal; fixed the test to wait for the title to actually change.
+
+**Artifacts pruned:** platform user + api_key + token account deleted (key **401**);
+sync rows purged. No residual.
+
+---
+
 ## 2026-07-11 — Fix: LaTeX math now renders (was raw \(…\) / \[…\])
 
 **Request:** "continue to make it the same as ChatGPT." Spotted in the "Thought

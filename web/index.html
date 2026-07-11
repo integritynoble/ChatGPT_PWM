@@ -3963,6 +3963,41 @@ async function onSend(e){
   streamReply();
 }
 
+// Smart conversation titles (ChatGPT parity): after the first turn completes,
+// rename the chat to a concise summary instead of the raw first message. Fires
+// once per conversation; won't clobber a title the user changed meanwhile.
+async function maybeAutoTitle(c){
+  if(!c || c.autoTitled || tempMode || sharedView || !getKey()) return;
+  const firstU=(c.messages||[]).find(m=>m.role==='user');
+  const uText=firstU ? msgText(firstU) : '';
+  if(!uText.trim()) return;
+  c.autoTitled=true;                 // only attempt once
+  const seedTitle=c.title;
+  try{
+    const sys='You create very short chat titles. Reply with ONLY a 3–6 word title in Title Case '
+      +'that summarizes the topic. No quotes, no preamble, no trailing punctuation.';
+    const resp=await fetch('/api/chat',{method:'POST',
+      headers:{'Content-Type':'application/json','X-PWM-Key':getKey()},
+      body:JSON.stringify({messages:[{role:'system',content:sys},
+        {role:'user',content:'Conversation opener:\n\n'+uText.slice(0,600)+'\n\nTitle:'}],
+        model:'gpt-5.6-luna', stream:true})});
+    if(!resp.ok) return;
+    const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf='', title='';
+    while(true){ const {done,value}=await reader.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true}); const lines=buf.split('\n'); buf=lines.pop();
+      for(const line of lines){ if(!line.startsWith('data:')) continue; const d=line.slice(5).trim();
+        if(!d||d==='[DONE]') continue;
+        try{ const o=JSON.parse(d); title+=(o.choices&&o.choices[0]&&o.choices[0].delta&&o.choices[0].delta.content)||''; }catch(_){}
+      }
+    }
+    title=title.replace(/^[\s"'“”‘’]+/,'').replace(/[\s"'“”‘’.]+$/,'').replace(/\s+/g,' ').slice(0,60);
+    // accept only a short title, and only if the user hasn't renamed it since
+    if(title && title.split(' ').length<=10 && c.title===seedTitle){
+      c.title=title; touchConvo(c); persist(); renderChatList();
+    }
+  }catch(e){}
+}
+
 async function streamReply(model, hint, depth, retry, opts){
   depth=depth||0; retry=retry||0; opts=opts||{};
   const cont=!!opts.cont;   // "Continue generating": append to the last (truncated) reply
@@ -4168,7 +4203,7 @@ async function streamReply(model, hint, depth, retry, opts){
     } else {
       md.innerHTML='<span style="color:var(--text-3)">No response.</span>';
     }
-    if(!continuing){ setGenerating(false); abortCtl=null; renderFollowups(); }
+    if(!continuing){ setGenerating(false); abortCtl=null; renderFollowups(); if(!voiceTurn && !cont) maybeAutoTitle(c); }
     scrollBottom();
   }
 }
