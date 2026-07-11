@@ -32,6 +32,20 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity polish: canvas "Add logs" code shortcut
+
+**Request:** "continue to make it the same as ChatGPT." Rounded out the canvas
+code toolset to match ChatGPT — added an **Add logs** quick chip (inserts
+logging/print statements) alongside Add comments / Fix bugs / Code review /
+Optimize. Doc canvases are unaffected (Polish / Shorter / Longer / Simplify /
+Add emojis).
+
+**LIVE on chatgpt.comparegpt.io** (client-side, no key): a code canvas shows the
+Add logs chip; headless `test_canvas_chips.py` 5/5 (code has Add logs, doc does
+not, both keep their other chips).
+
+---
+
 ## 2026-07-11 — Parity: search results show highlighted match snippets
 
 **Request:** "continue to make it the same as ChatGPT." Chat search already
