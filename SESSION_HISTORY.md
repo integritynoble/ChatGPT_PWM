@@ -32,6 +32,27 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity polish: source favicons + citation domain tooltips
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT shows the site
+favicon on source cards and the source on citation hover; ours showed a generic
+globe + "Source N".
+
+**Frontend (`index.html`, no backend change):** source cards now load the
+favicon from the **source's own domain** (`https://<host>/favicon.ico`, privacy-
+reasonable — same origin as the cited site) with an `onerror` fallback that
+reveals the original globe SVG, so broken favicons degrade gracefully. Inline
+citation superscripts now show the **domain** on hover instead of "Source N".
+
+**LIVE on chatgpt.comparegpt.io** (client-side, no key): seeded a reply with two
+sources → both source cards rendered an `img.src-fav` pointing at the domain's
+`/favicon.ico`, citations 1/2 had domain tooltips (`metro.tokyo.lg.jp`), and no
+raw `[[cite:` markers. Headless `test_citations.py` 10/10 (favicon present,
+tooltip = domain, plus the original 8 citation checks); math/stream-math/quote
+regressions green (uparrow flaked once, passed isolated).
+
+---
+
 ## 2026-07-11 — Parity: inline web-search citations (built + LIVE)
 
 **Request:** "continue to make it the same as ChatGPT." Web-search replies showed

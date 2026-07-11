@@ -562,6 +562,7 @@
     padding:0 4px;font-size:10.5px;font-weight:600;border-radius:5px;background:var(--hover);color:var(--text-2);
     text-decoration:none;vertical-align:1px}
   .markdown sup.cite a:hover{background:var(--menu-hover);color:var(--text)}
+  .src-fav{width:14px;height:14px;border-radius:3px;object-fit:contain;flex-shrink:0}
   .sources{margin-top:14px}
   .sources-h{font-size:12px;color:var(--text-3);font-weight:600;margin-bottom:8px}
   .src-list{display:flex;flex-wrap:wrap;gap:8px}
@@ -2691,8 +2692,10 @@ function insertCitations(text, citations, sources){
 // Render the [[cite:N|url]] markers as small superscript source links.
 const CITE_RE=/\[\[cite:(\d+)\|([^\]]+)\]\]/g;
 function renderCite(text){
-  return String(text).replace(CITE_RE,(_,n,url)=>
-    `<sup class="cite"><a href="${encodeURI(url)}" target="_blank" rel="noopener noreferrer" title="Source ${n}">${n}</a></sup>`);
+  return String(text).replace(CITE_RE,(_,n,url)=>{
+    let host=''; try{host=new URL(url).hostname.replace(/^www\./,'');}catch(e){host='';}
+    return `<sup class="cite"><a href="${encodeURI(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(host||('Source '+n))}">${n}</a></sup>`;
+  });
 }
 function stripCite(text){ return String(text).replace(CITE_RE,''); }
 function renderChartMarkers(text){
@@ -3157,8 +3160,10 @@ function renderMessage(m, idx){
       ? `<span class="pager"><button class="act act-prev" title="Previous">‹</button><span class="pnum">${m.vi+1}/${nver}</span><button class="act act-next" title="Next">›</button></span>` : '';
     const srcs=(m.variants&&m.variants[m.vi]&&m.variants[m.vi].sources)||[];
     const srcHtml = srcs.length ? `<div class="sources"><div class="sources-h">Sources</div><div class="src-list">`+
-      srcs.map(s=>{ let host=''; try{host=new URL(s.url).hostname.replace(/^www\./,'');}catch(e){host=s.url;}
-        return `<a class="src" href="${encodeURI(s.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(s.title||s.url)}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span class="dom">${escapeHtml(host)}</span></a>`;
+      srcs.map(s=>{ let host='', full=''; try{const u=new URL(s.url); full=u.hostname; host=full.replace(/^www\./,'');}catch(e){host=s.url;}
+        // favicon from the source's own domain; fall back to a globe if it fails
+        const fav = full ? `<img class="src-fav" src="https://${escapeHtml(full)}/favicon.ico" alt="" onerror="this.style.display='none';var g=this.parentElement.querySelector('.src-globe');if(g)g.style.display='';">` : '';
+        return `<a class="src" href="${encodeURI(s.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(s.title||s.url)}">${fav}<svg class="src-globe" style="${full?'display:none':''}" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span class="dom">${escapeHtml(host)}</span></a>`;
       }).join('')+`</div></div>` : '';
     const rsn=(m.variants&&m.variants[m.vi]&&m.variants[m.vi].reasoning)||'';
     const rMs=(m.variants&&m.variants[m.vi]&&m.variants[m.vi].reasoningMs)||0;
