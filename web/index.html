@@ -515,6 +515,12 @@
   .markdown ul,.markdown ol{margin:0 0 16px;padding-left:26px}
   .markdown li{margin:4px 0}
   .markdown li>ul,.markdown li>ol{margin:4px 0}
+  /* GFM task lists: drop the bullet, style the checkbox (ChatGPT parity).
+     Handles both "tight" (<li><input>) and "loose" (<li><p><input>) lists. */
+  .markdown li:has(input[type="checkbox"]){list-style:none;margin-left:-22px}
+  .markdown li:has(input[type="checkbox"])>p{margin:0}
+  .markdown li input[type="checkbox"]{width:16px;height:16px;margin:0 7px 0 0;vertical-align:-2px;
+    accent-color:var(--accent);cursor:default}
   .markdown a{color:#7eb6ff;text-decoration:none}
   :root[data-theme="light"] .markdown a{color:#0b62d6}
   .markdown a:hover{text-decoration:underline}

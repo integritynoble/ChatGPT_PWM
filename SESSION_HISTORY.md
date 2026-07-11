@@ -32,6 +32,27 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity polish: GFM task-list checkboxes (built + LIVE)
+
+**Request:** "continue to make it the same as ChatGPT." A render audit
+(`audit_render.py`) surfaced it: task lists showed **both a bullet and a
+checkbox** ("• ☐ todo") — ChatGPT drops the bullet and styles the box.
+
+**Frontend (`index.html`, CSS only):** `.markdown li:has(input[type="checkbox"])`
+→ `list-style:none` + left-shift; the checkbox is sized 16px with
+`accent-color` and `vertical-align`. **Root-caused a first miss:** the initial
+selector used `>input` (direct child), which only matched *tight* lists — a
+"loose" list (blank line after) makes marked wrap each `<li>` in a `<p>`
+(`<li><p><input>…`), so real-world task lists were missed. Switched to a
+descendant `:has(input…)` + neutralized the wrapper `<p>` margin, covering both.
+
+**LIVE on chatgpt.comparegpt.io** (no key needed — rendered through the deployed
+pipeline): both loose and tight task lists → `list-style:none`, 16px checkbox,
+checked state preserved, and plain lists still show their disc bullet. Headless
+`test_tasklist.py` 6/6; links-archive/math/autotitle regressions green.
+
+---
+
 ## 2026-07-11 — Parity polish: reply links open in a new tab + "Archive all chats"
 
 **Request:** "continue to make it the same as ChatGPT." Two gaps found by looking:
