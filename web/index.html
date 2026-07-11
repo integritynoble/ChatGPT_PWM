@@ -2938,6 +2938,7 @@ function renderMessage(m, idx){
           <button class="act act-read" title="Read aloud"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button>
           <button class="act act-src" title="Sources" style="display:none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></button>
           <button class="act act-regen" title="Regenerate"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg></button>
+          <button class="act act-branch" title="Branch in new chat"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></button>
         </div>
       </div>`;
     const md=msg.querySelector('.markdown');
@@ -2956,6 +2957,9 @@ function renderMessage(m, idx){
       sb.onclick=(e)=>{e.stopPropagation();srcPopover(vSrcs, e.currentTarget);};
     }
     msg.querySelector('.act-regen').onclick=(e)=>{e.stopPropagation();regenMenu(e.currentTarget, idx);};
+    const brBtn=msg.querySelector('.act-branch');
+    if(brBtn){ if(sharedView) brBtn.style.display='none';
+      else brBtn.onclick=(e)=>{e.stopPropagation();branchChat(idx);}; }
     if(pager){
       msg.querySelector('.act-prev').onclick=()=>{ if(m.vi>0){ m.vi--; persist(); renderThread(); } };
       msg.querySelector('.act-next').onclick=()=>{ if(m.vi<nver-1){ m.vi++; persist(); renderThread(); } };
@@ -3033,6 +3037,27 @@ function startEdit(idx, msgEl){
     streamReply();
   };
   ta.onkeydown=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); grp.querySelector('[data-act="send"]').click(); } };
+}
+
+// Branch in new chat (ChatGPT parity): fork the conversation at an assistant
+// message into a brand-new chat that shares the history up to that point, then
+// continue independently. Leaves the original untouched.
+function branchChat(idx){
+  if(generating) return;
+  const c=activeConvo(); if(!c) return;
+  if(tempMode){ showToast('Temporary chats can’t be branched'); return; }
+  // clone the visible path up to and including this message; drop hidden
+  // alternate branches so the fork starts clean
+  const clone=JSON.parse(JSON.stringify(c.messages.slice(0, idx+1))).map(m=>{ if(m.alts) delete m.alts; return m; });
+  const nc={id:now().toString(), title:((c.title||'New chat').slice(0,40))+' (branch)', messages:clone, ts:now()};
+  if(c.gptId) nc.gptId=c.gptId;
+  if(c.projectId) nc.projectId=c.projectId;
+  if(c.ciOn) nc.ciOn=true;
+  if(c.studyOn) nc.studyOn=true;
+  if(c.canvas) nc.canvas=c.canvas;
+  convos.unshift(nc);
+  persist(); showView('chat'); loadConvo(nc.id);
+  showToast('Branched into a new chat');
 }
 
 function switchUserVersion(idx, dir){

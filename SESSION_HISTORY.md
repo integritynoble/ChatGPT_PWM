@@ -32,6 +32,34 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: Branch in new chat (built + LIVE 8/8)
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT's assistant
+message hover menu has a **Branch in new chat** action that forks the conversation
+at that point into a fresh chat sharing the history so far, leaving the original
+untouched. It was missing.
+
+**Frontend (`index.html`, no backend change):** added an `.act-branch` (git-fork
+icon) button to the assistant message action row. `branchChat(idx)` deep-clones
+the visible message path up to and including that reply (dropping hidden `alts`
+branches so the fork starts clean), creates a new convo carrying `gptId` /
+`projectId` / `ciOn` / `studyOn` / `canvas`, titles it "… (branch)", unshifts it,
+and switches via the canonical `loadConvo()`. Hidden in shared view; blocked in
+temporary chats.
+
+**LIVE end-to-end on chatgpt.comparegpt.io** (throwaway user 214, key
+`sk-pwm-0z3eUkR…n870`, 10 PWM): real turn "name one planet" → **"Mars"** → clicked
+Branch → a new chat appeared in the sidebar carrying the Mars history → continued
+it with "name a different planet" → **"Venus"** — and the **original chat stayed
+at 2 messages**. Screenshot: `live_branch.png`. Headless `test_branch.py` 9/9
+(button renders, new convo, deep copy / no shared refs, title, history depth,
+original untouched); mention + CI-files regressions still green. Zero errors.
+
+**Artifacts pruned:** platform user 214 + api_key + token account + transactions
+deleted (key now **401**); sync rows purged. No residual.
+
+---
+
 ## 2026-07-11 — Parity: @-mention a custom GPT inline (built + LIVE 7/7)
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT lets you type `@`
