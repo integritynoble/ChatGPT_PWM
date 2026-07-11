@@ -32,6 +32,35 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: Escape stops generation
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT stops the
+streaming reply when you press Escape; ours only used Escape to close
+voice/find/overlays.
+
+**Frontend (`index.html`, no backend change):** the global Escape handler now,
+after voice/find, calls the same stop path as the Stop button
+(`ciStopped=true; abortCtl.abort()`) when `generating`, before falling through to
+close overlays.
+
+**Verified:** headless `test_esc_stop.py` 5/5 (mid-stream Escape halts generation,
+no further tokens arrive, partial content kept). On production I confirmed the
+**wiring** live — dispatching Escape while `generating` calls `abortCtl.abort()`
+and sets `ciStopped` on the deployed code. A real generation-interrupt couldn't be
+run because the pooled ChatGPT subscription was temporarily **rate-limited (429,
+usage_limit_reached, ~87 min reset)** — an infra condition affecting all
+generation, not this change. uparrow/quote/citations regressions green (branch
+flaked once, passed isolated).
+
+**Also probed + reverted:** tried forwarding the web-search *query* for a
+"Searching: <q>" display, but the upstream `web_search_call.searching` events carry
+**no query** (8 events, 0 queries) — reverted the backend change; feature
+infeasible here.
+
+**Artifacts pruned:** esc-verify + sq-verify users + keys + accounts deleted.
+
+---
+
 ## 2026-07-11 — Parity polish: source favicons + citation domain tooltips
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT shows the site

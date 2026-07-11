@@ -4996,6 +4996,7 @@ document.addEventListener('keydown', e=>{
   else if(e.key==='Escape' && !e.shiftKey){
     if(voiceActive){ closeVoiceMode(); return; }
     if($('#find-bar').classList.contains('open')){ findClose(); return; }
+    if(generating){ ciStopped=true; if(abortCtl) abortCtl.abort(); return; }   // stop the reply (ChatGPT parity)
     ['#shortcuts-overlay','#gpt-overlay'].forEach(s=>{ const o=$(s); if(o) o.classList.remove('open'); });
   }
 });
