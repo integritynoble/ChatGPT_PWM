@@ -32,6 +32,38 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: "Thought for N seconds" reasoning duration (built + LIVE)
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT labels a thinking
+model's reasoning summary with how long it thought ("Thought for 5 seconds"); ours
+just said "Thought process".
+
+**Frontend (`index.html`, no backend change):** `streamReply` stamps `reasonStart`
+at stream start and `reasonEnd` at the first content token; when the model produced
+a reasoning summary (`thinking` non-empty), it stores that span as
+`variants[vi].reasoningMs`. `renderMessage` labels the `<details>` summary
+`Thought for <fmtThinkTime(ms)>` (seconds/minutes), else "Thought process". A live
+`Thinking… (Ns)` counter ticks in the reasoning header while a summary streams.
+
+**Root-caused a first miss:** measuring from first-reasoning-delta → first-content
+gave ~0 ms, because the reasoning summary arrives in a **burst just before the
+answer** (real thinking is server-side). Fixed by measuring the full pre-answer
+latency (stream-start → first content) and only labelling it when a reasoning
+summary was actually produced — so fast non-thinking replies get no false label.
+
+**LIVE end-to-end on chatgpt.comparegpt.io** (throwaway user, `gpt-5.5-thinking`,
+"prove √2 is irrational"): the reply's reasoning summary read **"Thought for 5
+seconds"** with a stored `reasoningMs` of 5481. Backend probe confirmed the
+thinking model reliably emits reasoning deltas on hard prompts. Headless
+`test_think_time.py` 7/7 (live timer, "Thought for 2 seconds" label, ~2 s stored,
+reasoning text preserved, no leaked interval); continue/feedback/branch/gpt-icon
+regressions green. Zero errors.
+
+**Artifacts pruned:** platform user + api_key + token account deleted (key
+**401**); sync rows purged. No residual.
+
+---
+
 ## 2026-07-11 — Parity: custom GPT profile pictures (built + LIVE 6/6)
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT GPTs have a

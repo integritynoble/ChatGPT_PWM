@@ -1917,6 +1917,11 @@ function fileIcon(kind){
     : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
 }
 function fmtSize(n){ return n>=1048576 ? (n/1048576).toFixed(1)+' MB' : n>=1024 ? Math.round(n/1024)+' KB' : n+' B'; }
+// "Thought for …" duration label (ChatGPT parity for the reasoning summary).
+function fmtThinkTime(ms){ const s=Math.round(ms/1000);
+  if(s<1) return 'a moment';
+  if(s<60) return s+' second'+(s===1?'':'s');
+  const m=Math.round(s/60); return m+' minute'+(m===1?'':'s'); }
 async function fetchFiles(){
   if(!getKey()) return [];
   try{ const r=await fetch('/api/files',{headers:{'X-PWM-Key':getKey()}}); if(!r.ok) return []; return (await r.json()).files||[]; }
@@ -2994,7 +2999,8 @@ function renderMessage(m, idx){
         return `<a class="src" href="${encodeURI(s.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(s.title||s.url)}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span class="dom">${escapeHtml(host)}</span></a>`;
       }).join('')+`</div></div>` : '';
     const rsn=(m.variants&&m.variants[m.vi]&&m.variants[m.vi].reasoning)||'';
-    const rsnHtml = rsn ? `<details class="reasoning"><summary>Thought process</summary><div class="rt">${escapeHtml(rsn)}</div></details>` : '';
+    const rMs=(m.variants&&m.variants[m.vi]&&m.variants[m.vi].reasoningMs)||0;
+    const rsnHtml = rsn ? `<details class="reasoning"><summary>${rMs?('Thought for '+escapeHtml(fmtThinkTime(rMs))):'Thought process'}</summary><div class="rt">${escapeHtml(rsn)}</div></details>` : '';
     const gimg=(m.variants&&m.variants[m.vi]&&m.variants[m.vi].image)||'';
     const gimgHtml = gimg ? `<div class="gen-img-wrap"><img class="gen-img" src="${gimg}"><button class="gen-img-edit" title="Edit this image" data-editimg="1"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Edit</button></div>` : '';
     msg.innerHTML=`<div class="col">${rsnHtml}<div class="markdown"></div>
@@ -3990,7 +3996,7 @@ async function streamReply(model, hint, depth, retry, opts){
   markLast(); scrollBottom(true);
   setGenerating(true);
   abortCtl=new AbortController();
-  let full=cont ? (msgText(target)||'') : ''; let firstToken=false; let raf=null; let sources=[]; let thinking=''; let genImage=''; let streamErr=null; let httpStatus=0; let truncated=false;
+  let full=cont ? (msgText(target)||'') : ''; let firstToken=false; let raf=null; let sources=[]; let thinking=''; let genImage=''; let streamErr=null; let httpStatus=0; let truncated=false; let reasonStart=now(), reasonEnd=0, thinkTimer=null;
   // Hide any trailing [[memory: …]] marker from the live view (kept out of display).
   const forDisplay=(t)=>t.replace(/\n*\[\[\s*memory\s*:[^\]]*\]?\]?\s*$/i,'');
   const paint=()=>{
@@ -4047,13 +4053,13 @@ async function streamReply(model, hint, depth, retry, opts){
           const o=JSON.parse(d);
           if(o.status==='searching' && !firstToken){ md.innerHTML='<div class="searching"><span class="spin"></span> Searching the web…</div>'; }
           if(o.source && /^https?:\/\//.test(o.source.url) && !sources.some(s=>s.url===o.source.url)) sources.push(o.source);
-          if(o.reasoning){ thinking+=o.reasoning; if(!firstToken){ let live=md.querySelector('.reasoning-live .rt'); if(!live){ md.innerHTML='<div class="reasoning-live"><div class="rh"><span class="spin"></span> Thinking…</div><div class="rt"></div></div>'; live=md.querySelector('.reasoning-live .rt'); } live.textContent=thinking; scrollBottom(); } }
+          if(o.reasoning){ thinking+=o.reasoning; if(!firstToken){ let live=md.querySelector('.reasoning-live .rt'); if(!live){ md.innerHTML='<div class="reasoning-live"><div class="rh"><span class="spin"></span> Thinking…</div><div class="rt"></div></div>'; live=md.querySelector('.reasoning-live .rt'); if(!thinkTimer) thinkTimer=setInterval(()=>{ const rh=md.querySelector('.reasoning-live .rh'); if(rh) rh.innerHTML='<span class="spin"></span> Thinking… ('+Math.max(1,Math.round((now()-reasonStart)/1000))+'s)'; }, 500); } live.textContent=thinking; scrollBottom(); } }
           if(o.status==='generating_image' && !firstToken){ md.innerHTML='<div class="searching"><span class="spin"></span> Creating image…</div>'; }
           if(o.image){ genImage=o.image; let im=msgEl.querySelector('.gen-img'); if(!im){ if(md.querySelector('.thinking,.searching,.reasoning-live')) md.innerHTML=''; im=document.createElement('img'); im.className='gen-img'; const col=md.parentElement; col.insertBefore(im, col.querySelector('.actions')); } im.src=genImage; scrollBottom(); }
           const fr=(o.choices&&o.choices[0]&&o.choices[0].finish_reason)||null;
           if(fr){ truncated=(fr==='length'); }
           const delta=(o.choices&&o.choices[0]&&o.choices[0].delta&&o.choices[0].delta.content)||'';
-          if(delta){ if(!firstToken){firstToken=true; if(!cont) md.innerHTML='';} full+=delta; if(voiceStreamCb) voiceStreamCb(full); if(!raf) raf=requestAnimationFrame(paint); }
+          if(delta){ if(!firstToken){firstToken=true; if(reasonStart&&!reasonEnd) reasonEnd=now(); if(thinkTimer){clearInterval(thinkTimer);thinkTimer=null;} if(!cont) md.innerHTML='';} full+=delta; if(voiceStreamCb) voiceStreamCb(full); if(!raf) raf=requestAnimationFrame(paint); }
           if(o.error){ throw new Error(o.error.message||'stream error'); }
         }catch(_){}
       }
@@ -4061,6 +4067,7 @@ async function streamReply(model, hint, depth, retry, opts){
   }catch(err){ streamErr=err; }
   finally{
     if(raf) cancelAnimationFrame(raf);
+    if(thinkTimer){ clearInterval(thinkTimer); thinkTimer=null; }
     md.classList.remove('cursor');
     const aborted = streamErr && streamErr.name==='AbortError';
     const authFail = streamErr && streamErr.message==='__auth401__';
@@ -4095,6 +4102,10 @@ async function streamReply(model, hint, depth, retry, opts){
       if(reqSrcs) target.variants[target.vi].srcs=reqSrcs;
       if(sources.length) target.variants[target.vi].sources=sources;
       if(thinking.trim()) target.variants[target.vi].reasoning=thinking;
+      // "Thought for …": full pre-answer latency, but only when the model
+      // actually produced a reasoning summary (else it's just normal latency).
+      const reasoningMs = thinking.trim() ? ((reasonEnd||now())-reasonStart) : 0;
+      if(reasoningMs>500) target.variants[target.vi].reasoningMs=reasoningMs; else delete target.variants[target.vi].reasoningMs;
       if(genImage){ target.variants[target.vi].image=genImage; librarySave(genImage, lastUserText(c), c.id); }
       c.ts=now();
       persist(); renderChatList(); renderThread();
