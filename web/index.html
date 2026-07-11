@@ -1292,9 +1292,48 @@
 // ── Markdown setup ──────────────────────────────────────────────────────
 marked.setOptions({gfm:true, breaks:false});
 
+// Pull LaTeX math spans out of the text BEFORE markdown runs — otherwise
+// marked escapes the \( \[ delimiters (\(→( , \[→[ ) and KaTeX can't find them.
+// Code spans/blocks are left untouched so "$x" inside code stays literal.
+function protectMath(text){
+  const store=[]; let out=''; let i=0; const n=text.length;
+  const ph=()=>'\uE000'+(store.length-1)+'\uE001';   // private-use sentinels survive marked
+  while(i<n){
+    if(text.startsWith('```', i)){                 // fenced code block — skip
+      const end=text.indexOf('```', i+3); const stop=end===-1?n:end+3;
+      out+=text.slice(i,stop); i=stop; continue;
+    }
+    if(text[i]==='`'){                             // inline code — skip
+      const ticks=(/^`+/.exec(text.slice(i))||['`'])[0];
+      const end=text.indexOf(ticks, i+ticks.length); const stop=end===-1?i+ticks.length:end+ticks.length;
+      out+=text.slice(i,stop); i=stop; continue;
+    }
+    if(text.startsWith('$$', i)){                  // display $$…$$
+      const end=text.indexOf('$$', i+2);
+      if(end!==-1){ store.push(text.slice(i,end+2)); out+=ph(); i=end+2; continue; }
+    }
+    if(text.startsWith('\\[', i)){                 // display \[…\]
+      const end=text.indexOf('\\]', i+2);
+      if(end!==-1){ store.push(text.slice(i,end+2)); out+=ph(); i=end+2; continue; }
+    }
+    if(text.startsWith('\\(', i)){                 // inline \(…\)
+      const end=text.indexOf('\\)', i+2);
+      if(end!==-1){ store.push(text.slice(i,end+2)); out+=ph(); i=end+2; continue; }
+    }
+    if(text[i]==='$'){                             // inline $…$ (not currency)
+      const m=/^\$(?![\s\d])((?:[^$\n\\]|\\.)+?)(?<!\s)\$(?!\d)/.exec(text.slice(i));
+      if(m){ store.push(m[0]); out+=ph(); i+=m[0].length; continue; }
+    }
+    out+=text[i]; i++;
+  }
+  return {out, store};
+}
 function renderMarkdown(text){
-  const raw = marked.parse(text || '');
-  return DOMPurify.sanitize(raw);
+  const {out, store}=protectMath(text || '');
+  let html = DOMPurify.sanitize(marked.parse(out));
+  // restore the raw math (HTML-escaped) so KaTeX auto-render finds the delimiters
+  if(store.length) html = html.replace(/\uE000(\d+)\uE001/g, (m,i)=> escapeHtml(store[+i]||''));
+  return html;
 }
 
 function enhance(container){

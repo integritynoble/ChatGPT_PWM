@@ -32,6 +32,38 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Fix: LaTeX math now renders (was raw \(…\) / \[…\])
+
+**Request:** "continue to make it the same as ChatGPT." Spotted in the "Thought
+for N seconds" screenshot: the √2 proof showed **raw LaTeX** (`(\sqrt{2})`,
+`[ \boxed{…} ]`) instead of rendered math — a glaring quality gap vs ChatGPT.
+
+**Root cause:** KaTeX + auto-render were already wired (delimiters `$$`, `\[`,
+`\(`, `$`), but `renderMarkdown` ran `marked.parse` FIRST, and marked treats
+backslash-punctuation as escapes: `\(`→`(`, `\[`→`[`, `\)`→`)`, `\]`→`]`. So the
+KaTeX delimiters were destroyed before auto-render ever saw them (only `$$`/`$`
+survived). Classic markdown-vs-LaTeX ordering bug.
+
+**Fix (`index.html`, no backend change):** `protectMath(text)` scans the raw text
+and swaps each math span (`$$…$$`, `\[…\]`, `\(…\)`, and strict inline `$…$`) for a
+private-use sentinel BEFORE markdown, skipping fenced/inline code so `$x` in code
+stays literal; the inline-`$` rule rejects currency (`$5 and $10`). After
+`marked`+DOMPurify, the sentinels are restored HTML-escaped so KaTeX auto-render
+(in `enhance()`) renders them. Angle brackets inside math are escaped correctly.
+
+**LIVE end-to-end on chatgpt.comparegpt.io** (throwaway user, `gpt-5.5-thinking`,
+same √2 proof): the reply rendered **24 KaTeX spans** — display equations
+`(2k)²=2b²`, `4k²=2b²`, `b²=2k²`, inline `gcd(a,b)=1`, boxed `√2 is irrational` —
+**zero raw `\sqrt` / `\(` / `\[`** in the visible text. Screenshot: `live_math.png`
+(compare the earlier raw-LaTeX proof). Node unit test `math_unit.js` 8/8 (delimiter
+survival, currency skip, code untouched, `<` escaped, no sentinel leak); browser
+`test_math.py` 7/7; think-time/continue/CI/branch/feedback regressions green.
+
+**Artifacts pruned:** platform user + api_key + token account deleted (key **401**);
+sync rows purged. No residual.
+
+---
+
 ## 2026-07-11 — Parity: "Thought for N seconds" reasoning duration (built + LIVE)
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT labels a thinking
