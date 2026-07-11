@@ -32,6 +32,27 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: search results show highlighted match snippets
+
+**Request:** "continue to make it the same as ChatGPT." Chat search already
+matched message *content* (not just titles), but the sidebar only showed titles.
+ChatGPT shows a snippet of where the match is.
+
+**Frontend (`index.html`, no backend change):** `matchSnippet(c,q)` builds a short
+excerpt around the first matching message with the query wrapped in `<mark>`;
+`renderChatList` renders it under the title (`.has-snip` switches the item to a
+column layout, `.chat-snip` is clickable to open the chat). No snippet when not
+searching.
+
+**LIVE on chatgpt.comparegpt.io** (client-side, no key — subscription still
+rate-limited): searching "guanciale" (a word only in message content) surfaced the
+chat with the snippet "…make carbonara with **guanciale** and pecorino?", match
+highlighted. Headless `test_search_snippet.py` 7/7 (content match, snippet,
+highlight, context, click-to-open, no snippet when idle); sidebar-share/shortcuts/
+branch regressions green.
+
+---
+
 ## 2026-07-11 — Parity polish: keyboard-shortcuts help kept in sync
 
 **Request:** "continue to make it the same as ChatGPT." The shortcuts help modal
