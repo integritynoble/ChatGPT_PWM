@@ -32,6 +32,44 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: Continue generating (passive; infra caveat)
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT shows a
+**Continue generating** button when a reply is cut off at the output cap; clicking
+it resumes seamlessly in the same message. Built it end-to-end.
+
+**Backend (`openai_subscription.py`):** the event translator now handles
+`response.incomplete` — maps `incomplete_details.reason == max_output_tokens` to
+`finish_reason: "length"` (else `"stop"`) and emits the final chunk + `[DONE]`.
+Previously an incomplete response wasn't finalized cleanly, so this is also a
+robustness fix. `response.completed` still maps to `"stop"`.
+
+**Frontend (`index.html`):** `streamReply` captures `finish_reason`; a
+`length` finish stores `truncated:true` on the variant. `renderMessage` then shows
+a "Continue generating" pill under the last reply. `continueGenerating(idx)` calls
+`streamReply(..., {cont:true})`, which — unlike a normal turn — includes the
+truncated assistant text as context, appends a hidden "continue from exactly where
+you left off" instruction, seeds `full` with the existing content, and streams the
+continuation into the SAME message (no new bubble). Clears the flag on completion.
+
+**INFRA CAVEAT — could not force-verify on production.** The ChatGPT upstream
+(both the PWM exchange and the direct subscription) rejects `max_output_tokens`
+with **"Unsupported parameter"**, so there is no way to force a truncation on
+demand to demo the button live. I therefore removed the client/`main.py`
+`max_tokens` passthrough entirely (it would only ever 400). What remains is
+correct and low-risk: verified by a backend unit test (`response.incomplete` →
+`length`) and a headless stub test `test_continue.py` 8/8 (button appears,
+continuation appends to the same message, flag clears, no second bubble). On
+production I verified only the **regression** (real turn → normal reply, **no
+spurious button**, zero errors) — throwaway user via mint5. The button will
+activate on *natural* upstream truncations; it can't be triggered on command here.
+
+**Artifacts pruned:** platform user + api_key + token account + transactions
+deleted (key **401**); sync rows purged. Regressions (feedback/branch/mention/
+CI-files) all green; normal chat streams `finish_reason: stop` unaffected.
+
+---
+
 ## 2026-07-11 — Parity: thumbs-down feedback dialog (built + LIVE 8/8)
 
 **Request:** "continue to make it the same as ChatGPT." In ChatGPT, 👎 opens a

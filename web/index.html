@@ -229,6 +229,12 @@
   .fb-pop textarea{width:calc(100% - 20px);margin:0 10px;background:none;border:1px solid var(--border);
     border-radius:10px;color:var(--text);font-family:var(--font);font-size:13px;padding:8px;resize:none;outline:none}
   .fb-actions{display:flex;justify-content:flex-end;gap:8px;padding:8px 10px 6px}
+  /* continue-generating (truncated reply) */
+  .continue-btn{display:inline-flex;align-items:center;gap:7px;margin-top:10px;padding:7px 13px;
+    border:1px solid var(--border);border-radius:18px;background:var(--composer);color:var(--text);
+    font-size:13.5px;font-weight:500;cursor:pointer}
+  .continue-btn:hover{background:var(--menu-hover)}
+  .continue-btn svg{flex-shrink:0}
   .plus-item .info{display:flex;flex-direction:column;min-width:0}
   .plus-item .info .t{font-size:14px;font-weight:500}
   .plus-item .info .d{font-size:12px;color:var(--text-3);margin-top:1px}
@@ -2973,6 +2979,14 @@ function renderMessage(m, idx){
     const brBtn=msg.querySelector('.act-branch');
     if(brBtn){ if(sharedView) brBtn.style.display='none';
       else brBtn.onclick=(e)=>{e.stopPropagation();branchChat(idx);}; }
+    // "Continue generating" when the reply was cut off at the output cap
+    const vTrunc=m.variants && m.variants[m.vi] && m.variants[m.vi].truncated;
+    if(vTrunc && idx===activeMsgs().length-1 && !sharedView){
+      const cb=document.createElement('button'); cb.className='continue-btn';
+      cb.innerHTML='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>Continue generating';
+      cb.onclick=()=>continueGenerating(idx);
+      msg.querySelector('.col').appendChild(cb);
+    }
     if(pager){
       msg.querySelector('.act-prev').onclick=()=>{ if(m.vi>0){ m.vi--; persist(); renderThread(); } };
       msg.querySelector('.act-next').onclick=()=>{ if(m.vi<nver-1){ m.vi++; persist(); renderThread(); } };
@@ -3081,6 +3095,17 @@ function startEdit(idx, msgEl){
     streamReply();
   };
   ta.onkeydown=(e)=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); grp.querySelector('[data-act="send"]').click(); } };
+}
+
+// Continue generating (ChatGPT parity): resume a reply that was cut off at the
+// output cap, appending seamlessly to the same message.
+function continueGenerating(idx){
+  if(generating) return;
+  const c=activeConvo(); if(!c) return;
+  if(idx!==c.messages.length-1) return;   // only the latest reply can be continued
+  const m=c.messages[idx]; if(!m || m.role!=='assistant') return;
+  if(m.variants&&m.variants[m.vi]) delete m.variants[m.vi].truncated;   // hide the button while continuing
+  streamReply(currentModel, null, 0, 0, {cont:true});
 }
 
 // Branch in new chat (ChatGPT parity): fork the conversation at an assistant
@@ -3839,14 +3864,18 @@ async function onSend(e){
   streamReply();
 }
 
-async function streamReply(model, hint, depth, retry){
-  depth=depth||0; retry=retry||0;
+async function streamReply(model, hint, depth, retry, opts){
+  depth=depth||0; retry=retry||0; opts=opts||{};
+  const cont=!!opts.cont;   // "Continue generating": append to the last (truncated) reply
   const c=activeConvo(); if(!c) return;
   model = model || currentModel;
   // contract: the LAST message is an assistant whose current variant is the empty target
   let target=c.messages[c.messages.length-1];
   if(!target || target.role!=='assistant'){ target={role:'assistant',variants:[{content:'',ts:now()}],vi:0}; c.messages.push(target); }
-  const sendMsgs = c.messages.slice(0, c.messages.length-1).map(m=>{
+  // In continue mode the truncated assistant IS the last message and must be
+  // sent as context, so include it; otherwise slice it off (it's the empty target).
+  const upto = cont ? c.messages.length : c.messages.length-1;
+  const sendMsgs = c.messages.slice(0, upto).map(m=>{
     if(m.role==='user' && m.atts && m.atts.length){
       const textFiles=m.atts.filter(a=>a.kind!=='image');
       const imgs=m.atts.filter(a=>a.kind==='image' && a.url);
@@ -3893,19 +3922,21 @@ async function streamReply(model, hint, depth, retry){
   const reqSrcs=captureSources(c, voiceTurn);   // what personalizes THIS reply
   systemContext(c, voiceTurn).forEach(s=>sendMsgs.unshift({role:'system', content:s}));
   if(hint) sendMsgs.push({role:'user', content:hint});  // transient steering, not stored
+  if(cont) sendMsgs.push({role:'user', content:'Continue your previous response from exactly where it was cut off. Do not repeat or restate any earlier text — continue seamlessly as if you had never stopped.'});
 
   // render thread (shows empty target) then stream into the last assistant element
   renderThread(); setLanding();
   const allA=thread.querySelectorAll('.msg.assistant');
   const msgEl=allA[allA.length-1];
   const md=msgEl.querySelector('.markdown');
-  md.innerHTML = deepResearch
+  if(cont){ md.classList.add('cursor'); }   // keep the existing (truncated) text visible
+  else md.innerHTML = deepResearch
     ? '<div class="searching"><span class="spin"></span> Researching…</div>'
     : '<div class="thinking"><span></span><span></span><span></span></div>';
   markLast(); scrollBottom(true);
   setGenerating(true);
   abortCtl=new AbortController();
-  let full=''; let firstToken=false; let raf=null; let sources=[]; let thinking=''; let genImage=''; let streamErr=null; let httpStatus=0;
+  let full=cont ? (msgText(target)||'') : ''; let firstToken=false; let raf=null; let sources=[]; let thinking=''; let genImage=''; let streamErr=null; let httpStatus=0; let truncated=false;
   // Hide any trailing [[memory: …]] marker from the live view (kept out of display).
   const forDisplay=(t)=>t.replace(/\n*\[\[\s*memory\s*:[^\]]*\]?\]?\s*$/i,'');
   const paint=()=>{
@@ -3965,8 +3996,10 @@ async function streamReply(model, hint, depth, retry){
           if(o.reasoning){ thinking+=o.reasoning; if(!firstToken){ let live=md.querySelector('.reasoning-live .rt'); if(!live){ md.innerHTML='<div class="reasoning-live"><div class="rh"><span class="spin"></span> Thinking…</div><div class="rt"></div></div>'; live=md.querySelector('.reasoning-live .rt'); } live.textContent=thinking; scrollBottom(); } }
           if(o.status==='generating_image' && !firstToken){ md.innerHTML='<div class="searching"><span class="spin"></span> Creating image…</div>'; }
           if(o.image){ genImage=o.image; let im=msgEl.querySelector('.gen-img'); if(!im){ if(md.querySelector('.thinking,.searching,.reasoning-live')) md.innerHTML=''; im=document.createElement('img'); im.className='gen-img'; const col=md.parentElement; col.insertBefore(im, col.querySelector('.actions')); } im.src=genImage; scrollBottom(); }
+          const fr=(o.choices&&o.choices[0]&&o.choices[0].finish_reason)||null;
+          if(fr){ truncated=(fr==='length'); }
           const delta=(o.choices&&o.choices[0]&&o.choices[0].delta&&o.choices[0].delta.content)||'';
-          if(delta){ if(!firstToken){firstToken=true; md.innerHTML='';} full+=delta; if(voiceStreamCb) voiceStreamCb(full); if(!raf) raf=requestAnimationFrame(paint); }
+          if(delta){ if(!firstToken){firstToken=true; if(!cont) md.innerHTML='';} full+=delta; if(voiceStreamCb) voiceStreamCb(full); if(!raf) raf=requestAnimationFrame(paint); }
           if(o.error){ throw new Error(o.error.message||'stream error'); }
         }catch(_){}
       }
@@ -4003,6 +4036,7 @@ async function streamReply(model, hint, depth, retry){
       const cvSp=splitCanvas(full);
       if(cvSp.canvas && cvSp.canvas.body.trim()){ commitCanvas(c, cvSp.canvas); openCanvasPanel(); }
       target.variants[target.vi].content=full; target.variants[target.vi].ts=now();
+      if(truncated) target.variants[target.vi].truncated=true; else delete target.variants[target.vi].truncated;
       if(fups) target.variants[target.vi].fups=fups; else delete target.variants[target.vi].fups;
       if(reqSrcs) target.variants[target.vi].srcs=reqSrcs;
       if(sources.length) target.variants[target.vi].sources=sources;

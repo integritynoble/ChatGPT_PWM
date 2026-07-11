@@ -272,7 +272,7 @@ def _build_payload(messages: List[dict], model: str, web_search: bool = False,
         reasoning["effort"] = "high"
     elif str(model).endswith("-instant"):
         reasoning["effort"] = "low"   # fastest first token; voice mode uses this
-    return {
+    payload = {
         "model": _MODEL_MAP.get(model, DEFAULT_MODEL),
         "instructions": instructions,
         "input": items,
@@ -284,6 +284,7 @@ def _build_payload(messages: List[dict], model: str, web_search: bool = False,
         "reasoning": reasoning,   # "Thinking" summary; higher effort for the Thinking model
         "prompt_cache_key": str(uuid.uuid4()),
     }
+    return payload
 
 
 def _headers(access_token: str, account_id: str) -> dict:
@@ -408,6 +409,25 @@ async def _translate_line(line: str, model: str) -> AsyncIterator[bytes]:
             yield ("data: " + json.dumps(
                 {"source": {"title": anno.get("title") or anno.get("url"), "url": anno.get("url")}}
             ) + "\n\n").encode()
+    elif etype == "response.incomplete":
+        # Hit the output cap (or another incomplete reason) — tell the UI the
+        # answer was cut off so it can offer "Continue generating".
+        resp = event.get("response") or {}
+        reason = (resp.get("incomplete_details") or {}).get("reason", "")
+        fr = "length" if reason in ("max_output_tokens", "max_tokens") else "stop"
+        usage = resp.get("usage") or {}
+        final = {
+            "choices": [{"index": 0, "delta": {}, "finish_reason": fr}],
+            "model": model,
+        }
+        if usage:
+            final["usage"] = {
+                "prompt_tokens": usage.get("input_tokens", 0),
+                "completion_tokens": usage.get("output_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+            }
+        yield ("data: " + json.dumps(final) + "\n\n").encode()
+        yield b"data: [DONE]\n\n"
     elif etype == "response.completed":
         usage = (event.get("response") or {}).get("usage") or {}
         final = {
