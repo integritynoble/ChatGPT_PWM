@@ -608,6 +608,12 @@
     border:1px solid var(--composer-border);border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.28);
     padding:6px;max-height:280px;overflow-y:auto;z-index:40}
   .mention-hd{font-size:12px;color:var(--text-3);padding:6px 10px 4px}
+  /* select-text-to-quote button */
+  #quote-btn{position:fixed;z-index:95;display:none;align-items:center;gap:6px;padding:6px 12px;
+    background:var(--menu);border:1px solid var(--border);border-radius:18px;color:var(--text);
+    font-size:13px;font-weight:500;box-shadow:0 4px 16px rgba(0,0,0,.32);cursor:pointer}
+  #quote-btn.show{display:flex}
+  #quote-btn:hover{background:var(--menu-hover)}
   .mention-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;cursor:pointer}
   .mention-item:hover,.mention-item.active{background:var(--hover)}
   .mention-item .gpt-ava{width:30px;height:30px;border-radius:50%;flex-shrink:0;display:flex;
@@ -1636,6 +1642,46 @@ input.addEventListener('paste', e=>{
   }
   if(handled) e.preventDefault();  // only intercept files; let normal text paste through
 });
+
+// ── Select-text-to-quote (ChatGPT parity) ────────────────────────────────
+// Highlighting text inside a reply pops a "Quote" button; clicking it inserts
+// the selection as a Markdown blockquote into the composer for a follow-up.
+let quotedText='';
+(function initQuote(){
+  const btn=document.createElement('button'); btn.id='quote-btn';
+  btn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 11H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v7c0 2-1 3-3 4"/><path d="M20 11h-4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v7c0 2-1 3-3 4"/></svg>Quote';
+  document.body.appendChild(btn);
+  btn.addEventListener('mousedown', e=>e.preventDefault());   // keep the selection alive
+  btn.addEventListener('click', ()=>{ if(quotedText) addQuoteToComposer(quotedText); hideQuoteBtn(); });
+  document.addEventListener('mouseup', e=>{
+    if(e.target.closest && e.target.closest('#quote-btn')) return;
+    setTimeout(evalSelection, 10);
+  });
+  document.addEventListener('selectionchange', ()=>{ const s=window.getSelection(); if(!s||s.isCollapsed) hideQuoteBtn(); });
+  window.addEventListener('scroll', hideQuoteBtn, true);
+})();
+function evalSelection(){
+  const s=window.getSelection();
+  if(!s || s.isCollapsed || !s.rangeCount){ hideQuoteBtn(); return; }
+  const text=s.toString().trim();
+  if(!text || text.length<2){ hideQuoteBtn(); return; }
+  const node=s.anchorNode, el=node && (node.nodeType===1?node:node.parentElement);
+  const md=el && el.closest && el.closest('.msg.assistant .markdown');
+  if(!md){ hideQuoteBtn(); return; }
+  quotedText=text;
+  const r=s.getRangeAt(0).getBoundingClientRect();
+  const btn=$('#quote-btn');
+  btn.style.top=Math.max(6, r.top-40)+'px';
+  btn.style.left=Math.max(8, Math.min(r.left + r.width/2 - 42, window.innerWidth-96))+'px';
+  btn.classList.add('show');
+}
+function hideQuoteBtn(){ const b=$('#quote-btn'); if(b) b.classList.remove('show'); }
+function addQuoteToComposer(text){
+  const quoted=text.split('\n').map(l=>('> '+l).replace(/\s+$/,'')).join('\n');
+  input.value = quoted + '\n\n' + input.value;
+  autosize(input); input.focus();
+  const end=input.value.length; try{ input.setSelectionRange(end,end); }catch(e){}
+}
 function renderAttachments(){
   const row=$('#attach-row'); row.innerHTML='';
   attachments.forEach((a,i)=>{

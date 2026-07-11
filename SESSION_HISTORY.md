@@ -32,6 +32,29 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: select-text-to-quote (built + LIVE)
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT: highlight text in
+a reply → a floating **Quote** button → it drops the selection into the composer as
+a Markdown blockquote so your next message references it. Was missing.
+
+**Frontend (`index.html`, no backend change):** a floating `#quote-btn` created at
+startup. On `mouseup`, `evalSelection()` checks the selection is non-empty and
+anchored inside a `.msg.assistant .markdown`, then positions the button above the
+selection rect. Click → `addQuoteToComposer()` prefixes each line with `> ` and
+prepends it to the composer (cursor at end). Hides on collapse/scroll/elsewhere;
+`mousedown` preventDefault keeps the selection alive through the click. Only
+assistant replies are quotable (not user messages).
+
+**LIVE on chatgpt.comparegpt.io** (client-side, no key): selected "chemical energy"
+in a reply → the **Quote** button appeared → clicking inserted `> chemical energy`
+into the composer. Screenshot `live_quote.png` shows the floating button over the
+highlighted text. Headless `test_quote.py` 7/7 (appears on assistant selection,
+captures text, inserts blockquote, hides after, suppressed on user messages);
+img-download/tasklist/math/branch/feedback regressions green.
+
+---
+
 ## 2026-07-11 — Parity: download button on generated images (built + LIVE)
 
 **Request:** "continue to make it the same as ChatGPT." Generated images had only
