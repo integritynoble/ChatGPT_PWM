@@ -1285,6 +1285,7 @@
     <div class="sc-list">
       <div class="sc-row"><span>New chat</span><span><span class="kbd modk">Ctrl</span><span class="kbd">Shift</span><span class="kbd">O</span></span></div>
       <div class="sc-row"><span>Toggle sidebar</span><span><span class="kbd modk">Ctrl</span><span class="kbd">Shift</span><span class="kbd">S</span></span></div>
+      <div class="sc-row"><span>Search chats</span><span><span class="kbd modk">Ctrl</span><span class="kbd">K</span></span></div>
       <div class="sc-row"><span>Focus chat input</span><span><span class="kbd">Shift</span><span class="kbd">Esc</span></span></div>
       <div class="sc-row"><span>Edit last message</span><span><span class="kbd">↑</span></span></div>
       <div class="sc-row"><span>Stop generating</span><span><span class="kbd">Esc</span></span></div>
@@ -5011,6 +5012,7 @@ document.addEventListener('keydown', e=>{
   // Cmd/Ctrl+F → find within the current conversation (like ChatGPT); only when
   // a chat is open, else fall through to the browser's native find.
   if(mod && !e.shiftKey && e.key==='f' && !currentGroup && !sharedView && activeMsgs().length){ e.preventDefault(); findOpen(); return; }
+  if(mod && !e.shiftKey && e.key==='k' && !sharedView){ e.preventDefault(); railSearch(); return; }   // search chats (ChatGPT parity)
   if(mod && e.shiftKey && e.code==='KeyO'){ e.preventDefault(); newChat(); }
   else if(mod && e.shiftKey && e.code==='KeyS'){ e.preventDefault(); toggleSidebar(); }
   else if(mod && e.shiftKey && e.key==='Backspace'){

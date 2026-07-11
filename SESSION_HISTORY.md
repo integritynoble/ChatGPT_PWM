@@ -32,6 +32,26 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: Ctrl/⌘+K opens chat search
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT opens search with
+Ctrl/⌘+K; ours had no keyboard shortcut for it.
+
+**Frontend (`index.html`):** the global keydown handler now calls `railSearch()`
+(expands the sidebar + opens & focuses the search box) on `mod+K`; added a
+"Search chats · Ctrl K" row to the shortcuts help so it stays in sync.
+
+**LIVE on chatgpt.comparegpt.io** (client-side, no key — subscription still
+rate-limited): Ctrl+K opened the search box and focused the input. Headless
+`test_cmdk.py` 5/5 (opens, focuses, listed in help); shortcuts/search-snippet/
+esc-stop regressions green.
+
+Also confirmed via an **overflow audit** (`audit_overflow.py`) that long URLs,
+long inline code, unbroken tokens, and wide tables cause **no horizontal overflow**
+at 1280px or 390px — rendering is robust.
+
+---
+
 ## 2026-07-11 — Parity polish: canvas "Add logs" code shortcut
 
 **Request:** "continue to make it the same as ChatGPT." Rounded out the canvas
