@@ -32,6 +32,36 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity polish: reply links open in a new tab + "Archive all chats"
+
+**Request:** "continue to make it the same as ChatGPT." Two gaps found by looking:
+
+**1. Reply links navigated away (real bug).** Markdown links in replies had no
+`target`, so clicking a source/citation left the whole app and lost the chat.
+ChatGPT opens them in a new tab. Fix (`index.html`): a `DOMPurify.addHook`
+(`afterSanitizeAttributes`) that adds `target="_blank" rel="noopener noreferrer"`
+to every `http(s)` `<a>` — applies to all rendered markdown, no per-call change.
+
+**2. "Archive all chats" was missing.** ChatGPT Settings has both Archive-all and
+Delete-all; we only had Delete-all. Added an "Archive all" button + `archiveAllChats()`
+(marks every non-archived chat archived, clears the active view if it was archived,
+refreshes the Archived-chats list).
+
+**LIVE end-to-end on chatgpt.comparegpt.io** (throwaway users, fresh key): asked
+for two markdown links → both rendered as `<a … target="_blank"
+rel="noopener noreferrer">` (openai.com, wikipedia.org); `archiveAllChats()`
+archived every active chat. Headless `test_links_archive.py` 8/8; math/autotitle/
+CI/branch/feedback regressions green. Zero errors.
+
+**Debug note:** a first live run reported "no links" — reused-key sync state +
+model non-determinism (the reply occasionally wasn't markdown links); a fresh-key
+run confirmed the anchors unambiguously.
+
+**Artifacts pruned:** both platform users + keys + accounts deleted (keys **401**);
+sync rows purged. No residual.
+
+---
+
 ## 2026-07-11 — Parity: smart conversation titles (built + LIVE 6/6)
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT names each chat

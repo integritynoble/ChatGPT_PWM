@@ -1158,6 +1158,10 @@
       <div class="balance" id="balance-line" style="margin-top:10px"></div>
 
       <div class="danger-zone">
+        <span>Archive all chats</span>
+        <button class="btn btn-sm btn-ghost" onclick="archiveAllChats()">Archive all</button>
+      </div>
+      <div class="danger-zone">
         <span>Delete all chats on this device</span>
         <button class="btn btn-sm btn-danger" onclick="deleteAllChats()">Delete all</button>
       </div>
@@ -1291,6 +1295,17 @@
 <script>
 // ── Markdown setup ──────────────────────────────────────────────────────
 marked.setOptions({gfm:true, breaks:false});
+// Open links inside replies in a new tab (ChatGPT parity) — clicking a source
+// or citation must never navigate away from the conversation.
+DOMPurify.addHook('afterSanitizeAttributes', function(node){
+  if(node.tagName==='A'){
+    const href=node.getAttribute('href')||'';
+    if(/^https?:\/\//i.test(href)){
+      node.setAttribute('target','_blank');
+      node.setAttribute('rel','noopener noreferrer');
+    }
+  }
+});
 
 // Pull LaTeX math spans out of the text BEFORE markdown runs — otherwise
 // marked escapes the \( \[ delimiters (\(→( , \[→[ ) and KaTeX can't find them.
@@ -4471,6 +4486,14 @@ function deleteAllChats(){
   if(!confirm('Delete all chats on this device? This cannot be undone.')) return;
   convos.forEach(c=>addTombstone('convo', c.id));
   convos=[]; activeId=null; persist(); renderThread(); renderChatList(); setLanding(); closeSettings();
+}
+function archiveAllChats(){
+  const live=convos.filter(c=>!c.archived);
+  if(!live.length){ showToast('No chats to archive'); return; }
+  if(!confirm('Archive all '+live.length+' chat'+(live.length===1?'':'s')+'? They move to Archived chats in Settings.')) return;
+  live.forEach(c=>{ c.archived=true; touchConvo(c); });
+  if(activeId && convos.find(c=>c.id===activeId&&c.archived)){ activeId=null; renderThread(); setLanding(); }
+  persist(); renderChatList(); renderArchivedList(); showToast('All chats archived');
 }
 function logout(){
   closeAllPops();
