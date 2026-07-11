@@ -32,6 +32,38 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: @-mention a custom GPT inline (built + LIVE 7/7)
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT lets you type `@`
+in the composer to pull one of your custom GPTs into the current chat without
+leaving it. We had custom GPTs (instructions/knowledge/starters) and a "Chatting
+with …" context bar, but the only way in was the GPTs view — the inline `@`-picker
+was missing.
+
+**Frontend (`index.html`, no backend change):** a `#mention-pop` picker anchored
+above the composer. `mentionToken()` matches a trailing `@query` only at a
+word boundary (so `bob@ex` never fires); `updateMentionMenu()` (called from
+`autosize`, i.e. every input) filters `gpts` by name/desc; the menu is
+keyboard-driven via `onKey` (↑/↓/Enter/Tab/Esc) + mouse. Selecting strips the
+`@token` and binds the GPT to the chat through the **existing** path
+(`c.gptId`/`pendingGptId` → `updateGptContext()` → the "Chatting with …" bar →
+`systemContext` injection), so the GPT's instructions apply from that turn on.
+Closes on blur.
+
+**LIVE end-to-end on chatgpt.comparegpt.io** (throwaway user 213, key
+`sk-pwm-D6HpG3B…T9OI`, 10 PWM): created a "Captain Redbeard — answers only in
+pirate speak" GPT, typed `@Redb` → picker showed it → Enter bound it (context bar
+"Chatting with Captain Redbeard") → asked "What is 2 plus 2?" → the **real model
+replied "Arrr matey, 2 plus 2 is 4."**, proving the mentioned GPT's persona was
+actually injected. Screenshot: `live_mention.png`. Headless `test_mention_gpt.py`
+11/11 (open, filter, select, bind, strip, keyboard nav, mid-word guard); CI-files
+regression still 7/7. Zero console errors.
+
+**Artifacts pruned:** platform user 213 + api_key + token account + transactions
+deleted (key now **401**); sync rows purged. No residual.
+
+---
+
 ## 2026-07-11 — LIVE verification: code-interpreter file download (7/7)
 
 **Request:** live-verify the file download on production. Throwaway exchange user
