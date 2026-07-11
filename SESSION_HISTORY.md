@@ -32,6 +32,31 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — LIVE regression sweep (10/10 on production, real generation)
+
+**Request:** run a full live sweep once the pooled ChatGPT subscription's usage
+limit reset. Polled ~37 min (`usage_limit_reached`, prolite) until generation came
+back at 21:05, then ran `live_sweep.py` against chatgpt.comparegpt.io with one
+throwaway user (50 credits), each section isolated.
+
+**All 10 generation-dependent features verified with real generation:**
+- normal chat ("…Paris.") + **smart auto-title** ("France's capital is Paris")
+- **reasoning duration** "Thought for 2 seconds" + **LaTeX math** (22 KaTeX spans, no raw)
+- **inline web-search citations** (3 inline, 2 sources) + **source favicons** (2)
+- **Escape stops generation — real interrupt** (halted at 89 chars, stayed stable);
+  this completes the verification the rate-limit had blocked when the feature shipped
+- **code interpreter → file download** (`fruits.csv`)
+- **image gen → download + click-to-enlarge** (button + viewer)
+- **follow-up chips** — the sweep's trivial "fun fact" reply didn't warrant them
+  (non-determinism, not a regression); a focused retry ("explain photosynthesis")
+  produced 3 stored fups → 3 chips, marker hidden, and headless `test_followups.py`
+  PASSED. Working correctly.
+
+No regressions. Throwaway user + key + token account + synced convos purged (key
+**401**); confirmed **0 leftover throwaway users** for the whole session.
+
+---
+
 ## 2026-07-11 — Parity: Ctrl/⌘+K opens chat search
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT opens search with
