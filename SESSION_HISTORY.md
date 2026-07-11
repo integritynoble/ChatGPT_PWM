@@ -32,6 +32,36 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: downloadable files from the code interpreter
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT's code interpreter
+lets you download the files the code writes (CSV/xlsx/docx/pdf). We only surfaced
+images before; now any non-image file the sandbox writes to `/work/out/` comes back
+as a download button.
+
+**Backend (`main.py` `_run_sandboxed`):** after collecting images, also collect
+non-image files from `outdir` — base64-encoded, with caps `CI_MAX_FILES=6`,
+`CI_MAX_FILE_BYTES=8_000_000`. Returned as `files:[{name,size,data}]` alongside
+`images`. Both 8200 (systemd) and 8201 (uvicorn) backends restarted.
+
+**Docker image (`chatgpt-pwm-ci:latest`):** rebuilt to add file-gen libs —
+`openpyxl python-docx reportlab XlsxWriter` (were all missing; `pandas.to_excel`
+would have failed). Verified xlsx/docx/pdf generation.
+
+**Frontend (`index.html`):** `toolMessageHtml` renders `.ci-file` download buttons
+(icon + name + `fmtSize` + download icon); `downloadCiFile()` turns the base64 blob
+into a Blob download; `renderMessage` wires the buttons; `streamReply` feeds the
+produced filenames back to the model; the CI system-context now teaches saving to
+`/work/out/`. `stripConvoForSync` + the localStorage quota-fallback both strip the
+`files` blobs so heavy data never syncs/persists.
+
+**Verified end-to-end** on a clean backend: `df.to_excel('/work/out/report.xlsx')`
++ a `.txt` write → response returned both files (report.xlsx 5416 bytes valid,
+notes.txt 11 bytes), exit 0. Headless UI test `test_ci_files.py` 7/7. Deployed to
+both live dirs; `downloadCiFile` present on both public domains.
+
+---
+
 ## 2026-07-10 — LIVE verification: image editing (9/9, real edit round-trip)
 
 **Request:** live-verify image editing on production. Throwaway exchange user 211

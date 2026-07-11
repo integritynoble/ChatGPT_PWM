@@ -336,6 +336,8 @@ CI_MAX_CODE = 100_000
 CI_MAX_OUTPUT = 40_000
 CI_MAX_IMAGES = 6
 CI_MAX_IMAGE_BYTES = 4_000_000
+CI_MAX_FILES = 6
+CI_MAX_FILE_BYTES = 8_000_000
 _ci_sema = asyncio.Semaphore(int(os.environ.get("CHATGPT_CI_CONCURRENCY", "4")))
 
 
@@ -396,10 +398,32 @@ def _run_sandboxed(code: str) -> dict:
             except Exception:  # noqa: BLE001
                 pass
 
+        # Non-image files the code saved to /work/out/ become downloadable results
+        # (e.g. CSV, xlsx, docx, pdf) — like ChatGPT's code interpreter downloads.
+        files = []
+        for p in sorted(glob.glob(os.path.join(outdir, "*"))):
+            low = p.lower()
+            if low.endswith((".png", ".jpg", ".jpeg", ".gif")):
+                continue
+            if not os.path.isfile(p) or len(files) >= CI_MAX_FILES:
+                continue
+            try:
+                with open(p, "rb") as fh:
+                    raw = fh.read()
+                if 0 < len(raw) <= CI_MAX_FILE_BYTES:
+                    files.append({
+                        "name": os.path.basename(p),
+                        "size": len(raw),
+                        "data": base64.b64encode(raw).decode(),
+                    })
+            except Exception:  # noqa: BLE001
+                pass
+
         return {
             "stdout": stdout[:CI_MAX_OUTPUT],
             "stderr": stderr[:CI_MAX_OUTPUT],
             "images": images,
+            "files": files,
             "timed_out": timed_out,
             "exit_code": rc,
         }

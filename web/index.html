@@ -400,6 +400,11 @@
   .ci-err{margin:8px 13px;padding:9px 12px;background:rgba(229,72,77,.12);border-radius:9px;
         color:#f2555a;font-size:13px}
   .ci-none{margin:8px 13px;padding:4px 2px 10px;color:var(--text-3);font-size:13px}
+  .ci-file{display:flex;align-items:center;gap:9px;margin:8px 13px;padding:9px 12px;width:calc(100% - 26px);
+        background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);text-align:left;transition:background .12s}
+  .ci-file:hover{background:var(--hover)}
+  .ci-file-n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px}
+  .ci-file-s{color:var(--text-3);font-size:12px;flex-shrink:0}
   .ci-img{display:block;max-width:min(100%,560px);border-radius:10px;margin:8px 13px 12px;background:#fff}
   .conn-row{display:flex;gap:18px;margin:6px 0 2px}
   /* file library */
@@ -1552,7 +1557,7 @@ function persist(){
         let mm=m;
         if(m.atts) mm={...mm, atts:m.atts.map(a=> a.kind==='image' ? {name:a.name, kind:'image'} : a)};
         if(m.variants) mm={...mm, variants:m.variants.map(v=> v.image ? {...v, image:null} : v)};
-        if(m.run&&m.run.images&&m.run.images.length) mm={...mm, run:{...m.run, images:[]}};
+        if(m.run&&((m.run.images&&m.run.images.length)||(m.run.files&&m.run.files.length))) mm={...mm, run:{...m.run, images:[], files:[]}};
         return mm;
       })}));
       localStorage.setItem('cg_convos', JSON.stringify(slim));
@@ -2763,6 +2768,16 @@ async function renderTasksList(){
 }
 
 // Render a tool (execution) message: output panel with stdout/stderr + images.
+// Download a file the code interpreter produced (base64 → blob).
+function downloadCiFile(f){
+  try{
+    const bin=atob(f.data); const arr=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    const url=URL.createObjectURL(new Blob([arr]));
+    const a=document.createElement('a'); a.href=url; a.download=f.name||'file'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  }catch(e){ showToast('Could not download the file'); }
+}
 function toolMessageHtml(m){
   if(m.taskReq){
     const t=m.taskReq;
@@ -2796,6 +2811,10 @@ function toolMessageHtml(m){
     if(r.stderr) parts.push('<pre class="ci-out ci-stderr">'+escapeHtml(r.stderr)+'</pre>');
     if(r.timed_out) parts.push('<div class="ci-err">Execution timed out.</div>');
     (r.images||[]).forEach(src=>parts.push('<img class="ci-img" src="'+src+'">'));
+    (r.files||[]).forEach((f,i)=>parts.push(
+      '<button class="ci-file" data-cifile="'+i+'"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
+      +'<span class="ci-file-n">'+escapeHtml(f.name||('file'+i))+'</span><span class="ci-file-s">'+fmtSize(f.size||0)+'</span>'
+      +'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>'));
     if(!parts.length) parts.push('<div class="ci-none">No output.</div>');
     body='<div class="ci-body">'+parts.join('')+'</div>';
   }
@@ -2841,6 +2860,9 @@ function renderMessage(m, idx){
   const msg=document.createElement('div'); msg.className='msg '+m.role;
   if(m.role==='tool'){
     msg.innerHTML='<div class="col">'+toolMessageHtml(m)+'</div>';
+    const rf=(m.run&&m.run.files)||[];
+    msg.querySelectorAll('[data-cifile]').forEach(btn=>{ const f=rf[+btn.dataset.cifile];
+      if(f) btn.onclick=()=>downloadCiFile(f); });
     thread.appendChild(msg); return;
   }
   if(m.role==='user'){
@@ -3707,7 +3729,8 @@ async function streamReply(model, hint, depth, retry){
       if(r.timed_out) s+='(the code timed out before finishing)\n';
       if(r.error) s+='(sandbox error: '+r.error+')\n';
       if(r.images&&r.images.length) s+='('+r.images.length+' plot image(s) were produced and shown to the user)\n';
-      if(!r.stdout&&!r.stderr&&!r.error&&!(r.images&&r.images.length)) s+='(no output)\n';
+      if(r.files&&r.files.length) s+='(downloadable file(s) produced and offered to the user: '+r.files.map(f=>f.name).join(', ')+')\n';
+      if(!r.stdout&&!r.stderr&&!r.error&&!(r.images&&r.images.length)&&!(r.files&&r.files.length)) s+='(no output)\n';
       return {role:'user', content:s};
     }
     return {role:m.role, content:msgText(m)};
@@ -4065,7 +4088,10 @@ function systemContext(c, lite){
       +'will come back as the next message, then you interpret it for the user. The sandbox has numpy, pandas, '
       +'matplotlib (Agg), scipy, and sympy; NO internet access; ~30s time limit. To show a chart, save it with '
       +'plt.savefig("/work/out/plot.png") — saved images are displayed to the user automatically. '
-      +'Print anything you want to see. Use it for calculations, data analysis, and charts; answer directly when code is not needed.');
+      +'To give the user a downloadable file (CSV, Excel .xlsx, .docx, PDF, JSON, .zip, etc.), WRITE it to /work/out/ '
+      +'(e.g. df.to_csv("/work/out/data.csv") or df.to_excel("/work/out/report.xlsx")) — files saved there appear as '
+      +'download buttons. openpyxl and python-docx are available for Excel/Word. '
+      +'Print anything you want to see. Use it for calculations, data analysis, files, and charts; answer directly when code is not needed.');
   }
   if(studyActive(c)){
     out.push('STUDY MODE — you are a patient Socratic tutor, not an answer machine. Help the user LEARN, do not just '
@@ -4225,7 +4251,7 @@ function stripConvoForSync(c){
     let mm=m;
     if(m.atts) mm={...mm, atts:m.atts.map(a=> (a.url&&a.url.length>2000) ? {...a, url:null} : a)};
     if(m.variants) mm={...mm, variants:m.variants.map(v=> (v.image&&v.image.length>2000) ? {...v, image:null} : v)};
-    if(m.run&&m.run.images&&m.run.images.length) mm={...mm, run:{...m.run, images:[]}};
+    if(m.run&&((m.run.images&&m.run.images.length)||(m.run.files&&m.run.files.length))) mm={...mm, run:{...m.run, images:[], files:[]}};
     return mm;
   })};
 }
