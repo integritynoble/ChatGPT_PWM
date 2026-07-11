@@ -32,6 +32,25 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: ↑ in an empty composer edits your last message (LIVE)
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT (and shells) let
+you press **Up-arrow** in an empty composer to edit your last message; ours only
+used ArrowUp for the @-mention menu.
+
+**Frontend (`index.html`, no backend change):** in `onKey`, after the mention-menu
+handling, ArrowUp with an **empty** composer (and not generating/temp/shared) finds
+the last `role:'user'` message and calls `startEdit(idx, lastUserEl)`. A non-empty
+composer keeps normal caret behaviour; the mention menu still owns ArrowUp when open.
+
+**LIVE on chatgpt.comparegpt.io** (client-side, no key): with an empty composer,
+ArrowUp opened the edit box pre-filled with the last message ("and of Japan").
+Headless `test_uparrow_edit.py` 5/5 (opens edit on the last user msg, ignores a
+non-empty composer, preserves typed text); sidebar-share/quote/branch/mention
+regressions green.
+
+---
+
 ## 2026-07-11 — Parity: Share in the sidebar chat menu (built + LIVE)
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT's sidebar chat

@@ -3576,6 +3576,15 @@ function onKey(e){
     if(e.key==='Enter'||e.key==='Tab'){ e.preventDefault(); selectMention(mentionIdx); return; }
     if(e.key==='Escape'){ e.preventDefault(); closeMention(); return; }
   }
+  // Up-arrow in an empty composer edits your last message (ChatGPT parity)
+  if(e.key==='ArrowUp' && !input.value && !generating && !tempMode && !sharedView){
+    const c=activeConvo();
+    if(c && c.messages && c.messages.length){
+      let idx=-1; for(let i=c.messages.length-1;i>=0;i--){ if(c.messages[i].role==='user'){ idx=i; break; } }
+      const els=thread.querySelectorAll('.msg.user');
+      if(idx>=0 && els.length){ e.preventDefault(); startEdit(idx, els[els.length-1]); return; }
+    }
+  }
   if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); onSend(e); }
 }
 
