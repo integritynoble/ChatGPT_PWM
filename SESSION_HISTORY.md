@@ -32,6 +32,32 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: live (streaming) math rendering
+
+**Request:** "continue to make it the same as ChatGPT." Math only rendered on the
+FINAL paint, so a proof showed raw `\(…\)` for the whole stream; ChatGPT renders
+math live as it types.
+
+**Frontend (`index.html`, no backend change):** factored a `katexRender(el)`
+helper out of `enhance()` and call it from `paint()` during streaming — but only
+when the reply so far has **1–12** math delimiters, so heavy proofs defer to the
+final render and the streaming hot path stays cheap (non-math replies skip it
+entirely). Flicker-free because every paint that rebuilds the markdown also
+re-renders the math immediately.
+
+**LIVE on chatgpt.comparegpt.io** (throwaway key, asked for 3 inline-LaTeX
+formulas): KaTeX was present **while `generating` was still true**, 3 spans in the
+final reply, zero raw `\(` remaining. Headless `test_stream_math.py` 4/4 (math
+present mid-stream, persists after, no raw left); math/quote/tasklist/branch/
+continue + edge-audit regressions green. Earlier render audits (`audit_render`,
+`audit_edge`) confirmed tables, code, nested lists, and math-in-tables all render
+correctly — no other rendering gaps found.
+
+**Artifacts pruned:** platform user + key + account deleted (key **401**); sync
+rows purged.
+
+---
+
 ## 2026-07-11 — Parity: select-text-to-quote (built + LIVE)
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT: highlight text in

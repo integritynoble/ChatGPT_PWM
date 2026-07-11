@@ -1390,12 +1390,15 @@ function enhance(container){
       setTimeout(()=>b.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy',1500);
     };
   });
-  if(window.renderMathInElement){
-    try{ renderMathInElement(container,{delimiters:[
-      {left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},
-      {left:'\\(',right:'\\)',display:false},{left:'$',right:'$',display:false}
-    ],throwOnError:false}); }catch(e){}
-  }
+  katexRender(container);
+}
+// Render KaTeX math in an element (shared by enhance() and live streaming).
+function katexRender(el){
+  if(!window.renderMathInElement) return;
+  try{ renderMathInElement(el,{delimiters:[
+    {left:'$$',right:'$$',display:true},{left:'\\[',right:'\\]',display:true},
+    {left:'\\(',right:'\\)',display:false},{left:'$',right:'$',display:false}
+  ],throwOnError:false}); }catch(e){}
 }
 
 // ── State ───────────────────────────────────────────────────────────────
@@ -4156,6 +4159,10 @@ async function streamReply(model, hint, depth, retry, opts){
       md.innerHTML=renderMarkdown(sp.chat)+canvasCardHtml(sp.canvas.title, sp.open);
     } else {
       md.innerHTML=renderMarkdown(renderChartMarkers(hideFollowups(hideTaskCall(hideConnCall(renderRunnable(forDisplay(full)))))));
+      // Render math live so it doesn't show as raw LaTeX while streaming. Only for
+      // a modest amount (heavy proofs defer to the final render) to keep paint cheap.
+      const mc=(full.match(/\\\(|\\\[|\$\$/g)||[]).length;
+      if(mc>=1 && mc<=12) katexRender(md);
     }
     md.classList.add('cursor'); scrollBottom(); raf=null;
   };
