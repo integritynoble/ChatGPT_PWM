@@ -317,6 +317,12 @@
   .gpt-card:hover{background:var(--hover-2)}
   .gpt-ava{width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--accent-fg);
         display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:600;flex-shrink:0}
+  img.gpt-ava{object-fit:cover}
+  img.hero-logo{border-radius:50%;object-fit:cover}
+  .gpt-icon-row{display:flex;align-items:center;gap:12px;margin:4px 0 10px}
+  .gpt-icon-preview{width:56px;height:56px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;
+        justify-content:center;background:var(--accent);color:var(--accent-fg);font-weight:600;font-size:22px;overflow:hidden}
+  .gpt-icon-preview img{width:100%;height:100%;object-fit:cover}
   .gpt-info{flex:1;min-width:0}
   .gpt-hero-desc{font-size:14px;color:var(--text-3);margin-top:6px;max-width:460px;text-align:center}
   .gpt-starters{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:22px;max-width:600px}
@@ -1195,6 +1201,14 @@
   <div class="modal">
     <h2 id="gpt-modal-title">Create a GPT</h2>
     <p>A custom version of ChatGPT with its own name and instructions, used as the system prompt in its chats.</p>
+    <div class="gpt-icon-row">
+      <div id="gpt-icon-preview" class="gpt-icon-preview">?</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm btn-ghost" type="button" onclick="pickGptIcon()">Upload icon</button>
+        <button class="btn btn-sm btn-ghost" type="button" id="gpt-icon-remove" style="display:none" onclick="clearGptIcon()">Remove</button>
+      </div>
+    </div>
+    <input type="file" id="gpt-icon-input" accept="image/*" style="display:none" onchange="onGptIconPick(event)">
     <label for="gpt-name">Name</label>
     <input id="gpt-name" type="text" placeholder="e.g. Code Copilot" style="font-family:var(--font)" autocomplete="off" spellcheck="false">
     <label for="gpt-desc">Description</label>
@@ -1621,7 +1635,10 @@ function setLanding(){
   const gid=(ac&&ac.gptId)||pendingGptId||null;
   const gpt=gid?gptById(gid):null;
   if(empty && gpt){
-    let h=`<svg class="hero-logo" width="46" height="46"><use href="#oai"/></svg><h1>${escapeHtml(gpt.name||'Custom GPT')}</h1>`;
+    let h=(gpt.icon
+      ? `<img class="hero-logo" width="46" height="46" src="${gpt.icon}" alt="">`
+      : `<svg class="hero-logo" width="46" height="46"><use href="#oai"/></svg>`)
+      +`<h1>${escapeHtml(gpt.name||'Custom GPT')}</h1>`;
     if(gpt.desc) h+=`<p class="gpt-hero-desc">${escapeHtml(gpt.desc)}</p>`;
     if(gpt.starters&&gpt.starters.length)
       h+=`<div class="gpt-starters">`+gpt.starters.slice(0,4).map(s=>`<button class="starter-chip">${escapeHtml(s)}</button>`).join('')+`</div>`;
@@ -2222,7 +2239,7 @@ function renderGpts(){
   const mineIds=new Set(mine.map(g=>g.id));
   const card=(g,explore)=>`
     <div class="gpt-card" onclick="${explore?`tryExploreGpt('${g.id}')`:`startGpt('${g.id}')`}">
-      <div class="gpt-ava">${escapeHtml((g.name||'?').trim().slice(0,1).toUpperCase())}</div>
+      ${gptAvatarHtml(g)}
       <div class="gpt-info"><div class="gpt-name">${escapeHtml(g.name||'Untitled')}</div><div class="gpt-desc">${escapeHtml(g.desc||'')}</div></div>
       ${explore?'':`<button class="gpt-edit" title="Edit" onclick="event.stopPropagation();editGpt('${g.id}')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>`}
     </div>`;
@@ -2285,12 +2302,49 @@ async function ensureGptFiles(gid){
   }
   gptFilesCache[gid]=out;
 }
+// Custom GPT profile picture (ChatGPT parity): an uploaded, center-cropped,
+// downscaled icon stored on the GPT (small data URL) and shown wherever the
+// letter avatar is used — cards, the @-mention picker, the GPT landing hero.
+function gptAvatarHtml(g){
+  const letter=escapeHtml(((g&&g.name)||'?').trim().slice(0,1).toUpperCase());
+  return (g&&g.icon) ? `<img class="gpt-ava" src="${g.icon}" alt="">` : `<div class="gpt-ava">${letter}</div>`;
+}
+let editingGptIcon=null;
+function pickGptIcon(){ $('#gpt-icon-input').click(); }
+function clearGptIcon(){ editingGptIcon=null; renderGptIconPreview(); }
+function onGptIconPick(e){
+  const f=e.target.files&&e.target.files[0]; e.target.value='';
+  if(!f) return;
+  if(!/^image\//.test(f.type)){ showToast('Please choose an image'); return; }
+  resizeSquareDataUrl(f, 96).then(url=>{ editingGptIcon=url; renderGptIconPreview(); })
+    .catch(()=>showToast('Could not load that image'));
+}
+function renderGptIconPreview(){
+  const box=$('#gpt-icon-preview'); if(!box) return;
+  if(editingGptIcon){ box.innerHTML=`<img src="${editingGptIcon}" alt="">`; $('#gpt-icon-remove').style.display='inline-flex'; }
+  else { box.textContent=(($('#gpt-name').value||'?').trim().slice(0,1).toUpperCase())||'?'; $('#gpt-icon-remove').style.display='none'; }
+}
+// Center-crop to a square and downscale to `size`px → a compact JPEG data URL.
+function resizeSquareDataUrl(file, size){
+  return new Promise((res,rej)=>{
+    const fr=new FileReader();
+    fr.onload=()=>{ const img=new Image();
+      img.onload=()=>{ try{ const cv=document.createElement('canvas'); cv.width=size; cv.height=size;
+        const ctx=cv.getContext('2d'); const s=Math.min(img.width,img.height);
+        ctx.drawImage(img, (img.width-s)/2, (img.height-s)/2, s, s, 0, 0, size, size);
+        res(cv.toDataURL('image/jpeg', 0.85)); }catch(err){ rej(err); } };
+      img.onerror=rej; img.src=fr.result; };
+    fr.onerror=rej; fr.readAsDataURL(file);
+  });
+}
+
 function editGpt(id){
   editingGptId=id||null;
   const g=id?gptById(id):null;
   $('#gpt-modal-title').textContent=g?'Edit GPT':'Create a GPT';
   $('#gpt-name').value=g?g.name:''; $('#gpt-desc').value=g?(g.desc||''):''; $('#gpt-instructions').value=g?(g.instructions||''):'';
   $('#gpt-starters').value=g&&g.starters?g.starters.join('\n'):''; $('#gpt-knowledge').value=g?(g.knowledge||''):'';
+  editingGptIcon=(g&&g.icon)||null; renderGptIconPreview();
   editingGptFiles=(g&&g.files)?g.files.slice():[]; renderGptFilesList();
   $('#gpt-del').style.display=g?'inline-flex':'none';
   $('#gpt-share').style.display=g?'inline-flex':'none';
@@ -2303,8 +2357,8 @@ function saveGpt(){
   const starters=$('#gpt-starters').value.split('\n').map(s=>s.trim()).filter(Boolean).slice(0,4);
   const knowledge=$('#gpt-knowledge').value.trim().slice(0,20000);
   const files=editingGptFiles.slice(0,20);
-  if(editingGptId){ const g=gptById(editingGptId); if(g){ g.name=name; g.desc=desc; g.instructions=instructions; g.starters=starters; g.knowledge=knowledge; g.files=files; g.uts=now(); delete gptFilesCache[g.id]; } }
-  else { gpts.push({id:'gpt_'+now()+'_'+Math.random().toString(36).slice(2,6), name, desc, instructions, starters, knowledge, files, ts:now()}); }
+  if(editingGptId){ const g=gptById(editingGptId); if(g){ g.name=name; g.desc=desc; g.instructions=instructions; g.starters=starters; g.knowledge=knowledge; g.files=files; if(editingGptIcon) g.icon=editingGptIcon; else delete g.icon; g.uts=now(); delete gptFilesCache[g.id]; } }
+  else { const ng={id:'gpt_'+now()+'_'+Math.random().toString(36).slice(2,6), name, desc, instructions, starters, knowledge, files, ts:now()}; if(editingGptIcon) ng.icon=editingGptIcon; gpts.push(ng); }
   saveGpts(); closeGptModal(); if(currentView==='gpts') renderGpts(); updateGptContext();
 }
 function deleteGptFromUI(){
@@ -3344,7 +3398,7 @@ function renderMentionMenu(){
   const pop=$('#mention-pop'); if(!pop) return;
   pop.innerHTML='<div class="mention-hd">Chat with a GPT</div>'+mentionItems.map((g,i)=>
     `<div class="mention-item${i===mentionIdx?' active':''}" role="option" data-i="${i}">
-      <div class="gpt-ava">${escapeHtml((g.name||'?').trim().slice(0,1).toUpperCase())}</div>
+      ${gptAvatarHtml(g)}
       <div class="mi-txt"><div class="mi-name">${escapeHtml(g.name||'Untitled')}</div>
         <div class="mi-desc">${escapeHtml(g.desc||'')}</div></div>
     </div>`).join('');

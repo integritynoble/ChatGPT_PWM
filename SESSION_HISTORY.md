@@ -32,6 +32,34 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: custom GPT profile pictures (built + LIVE 6/6)
+
+**Request:** "continue to make it the same as ChatGPT." ChatGPT GPTs have a
+circular profile icon; ours only ever showed a single-letter avatar.
+
+**Frontend (`index.html`, no backend change):** the create/edit GPT modal gets an
+icon control — a round preview + Upload/Remove. `onGptIconPick` →
+`resizeSquareDataUrl(file, 96)` center-crops and downscales to a compact JPEG data
+URL (~1.5 KB), stored as `gpt.icon`. A shared `gptAvatarHtml(g)` helper renders an
+`<img class="gpt-ava">` when an icon is set (else the letter), used at every site:
+the GPTs-view cards, the @-mention picker, and the GPT landing hero. `editGpt`
+preloads the icon; `saveGpt` stores/drops it; Remove clears it. Being on the `gpt`
+object, it syncs via `cg_gpts`.
+
+**LIVE end-to-end on chatgpt.comparegpt.io** (throwaway user 217, key
+`sk-pwm-C9mR2Ov…aAGI`): created "Azure Assistant" with an uploaded blue PNG →
+its card shows the **image avatar** next to the letter-avatar GPTs → the @-mention
+picker shows the icon → forced a real `syncNow()` push, cleared local `cg_gpts`,
+reloaded, and the **icon came back from the server** (survived the sync
+round-trip). Screenshot: `live_gpt_icon.png`. Headless `test_gpt_icon.py` 12/12
+(upload, preview, ~1.5 KB downscale, store, card/mention/hero render, edit
+preload, remove); mention/branch/feedback regressions green. Zero errors.
+
+**Artifacts pruned:** platform user 217 + api_key + token account deleted (key
+**401**); sync rows purged. No residual.
+
+---
+
 ## 2026-07-11 — Parity: Continue generating (passive; infra caveat)
 
 **Request:** "continue to make it the same as ChatGPT." ChatGPT shows a
