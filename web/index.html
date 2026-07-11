@@ -651,8 +651,8 @@
   .bubble-atts{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;margin-bottom:6px}
   .chip.img{padding:5px 9px 5px 5px}
   .chip .thumb{width:34px;height:34px;border-radius:7px;object-fit:cover;flex-shrink:0}
-  .bubble-img{max-width:240px;max-height:260px;border-radius:14px;display:block;border:1px solid var(--border)}
-  .gen-img{max-width:min(100%,420px);border-radius:14px;margin:8px 0;display:block;border:1px solid var(--border)}
+  .bubble-img{max-width:240px;max-height:260px;border-radius:14px;display:block;border:1px solid var(--border);cursor:zoom-in}
+  .gen-img{max-width:min(100%,420px);border-radius:14px;margin:8px 0;display:block;border:1px solid var(--border);cursor:zoom-in}
   .gen-img-wrap{position:relative;display:inline-block}
   .gen-img-bar{position:absolute;bottom:16px;right:8px;display:flex;gap:6px;opacity:0;transition:opacity .15s}
   .gen-img-wrap:hover .gen-img-bar{opacity:1}
@@ -2184,11 +2184,25 @@ async function libraryOpen(id){
   $('#lightbox-img').src=im.url;
   $('#lightbox-cap').textContent=im.caption||'';
   const dl=$('#lightbox-dl'); dl.href=im.url; dl.download=(im.caption||'image').replace(/[^\w.-]+/g,'_').slice(0,40)+'.png';
-  const ed=$('#lightbox-edit'); if(ed) ed.onclick=()=>editImage(im.url);
-  $('#lightbox-del').onclick=async()=>{ await libraryDelete(id); closeLightbox(); renderLibrary(); };
+  const ed=$('#lightbox-edit'); if(ed){ ed.style.display=''; ed.onclick=()=>editImage(im.url); }
+  const del=$('#lightbox-del'); del.style.display=''; del.onclick=async()=>{ await libraryDelete(id); closeLightbox(); renderLibrary(); };
   $('#lightbox').classList.add('open');
 }
 function closeLightbox(){ $('#lightbox').classList.remove('open'); $('#lightbox-img').src=''; }
+// Full-screen viewer for any inline image (generated or uploaded) — click to
+// enlarge, with Download and (for generated images) Edit. Not a library item, so
+// no Delete. (ChatGPT parity.)
+function openImageViewer(url, opts){
+  if(!url) return; opts=opts||{};
+  $('#lightbox-img').src=url;
+  $('#lightbox-cap').textContent=opts.caption||'';
+  const dl=$('#lightbox-dl'); dl.href=url; dl.download=(opts.name||'chatgpt-image')+'.png';
+  const ed=$('#lightbox-edit');
+  if(ed){ if(opts.editable && !sharedView){ ed.style.display=''; ed.onclick=()=>{ closeLightbox(); editImage(url); }; }
+          else ed.style.display='none'; }
+  const del=$('#lightbox-del'); if(del) del.style.display='none';
+  $('#lightbox').classList.add('open');
+}
 
 // ── Projects (group related chats) ───────────────────────────────────────
 function saveProjects(){ try{ localStorage.setItem('cg_projects', JSON.stringify(projects)); }catch(e){} scheduleSync(); }
@@ -3092,6 +3106,7 @@ function renderMessage(m, idx){
         </div>
       </div>`;
     const bub=msg.querySelector('.bubble'); bub.textContent=ucontent; if(!ucontent) bub.style.display='none';
+    msg.querySelectorAll('.bubble-img').forEach(im=>{ im.onclick=()=>openImageViewer(im.src,{editable:true}); });
     msg.querySelector('.act-edit').onclick=()=>startEdit(idx, msg);
     msg.querySelector('.act-ucopy').onclick=(e)=>copyBtn(e.currentTarget, ucontent);
     if(upager){
@@ -3140,6 +3155,7 @@ function renderMessage(m, idx){
     msg.querySelector('.act-copy').onclick=(e)=>copyBtn(e.currentTarget, content);
     const eb=msg.querySelector('[data-editimg]'); if(eb) eb.onclick=()=>editImage(gimg);
     const dib=msg.querySelector('[data-dlimg]'); if(dib) dib.onclick=()=>downloadDataUrl(gimg, 'chatgpt-image.png');
+    const gimEl=msg.querySelector('img.gen-img'); if(gimEl) gimEl.onclick=()=>openImageViewer(gimg,{editable:true});
     if(m.rating==='up') msg.querySelector('.act-good').classList.add('ok');
     if(m.rating==='down') msg.querySelector('.act-bad').classList.add('ok');
     msg.querySelector('.act-good').onclick=()=>{ m.rating=m.rating==='up'?null:'up'; touchConvo(activeConvo()); persist(); renderThread(); };

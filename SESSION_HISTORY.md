@@ -32,6 +32,26 @@ restarted by its own process manager. nginx for both domains sets `proxy_bufferi
 
 ---
 
+## 2026-07-11 — Parity: click any inline image to enlarge (built + LIVE)
+
+**Request:** "continue to make it the same as ChatGPT." Inline images (generated
+`.gen-img` and uploaded `.bubble-img`) weren't clickable — the full-screen viewer
+only opened from the Library. ChatGPT opens any image on click.
+
+**Frontend (`index.html`, no backend change):** a generic `openImageViewer(url,
+{editable})` reuses the existing `#lightbox` — shows the image + Download, plus
+Edit for generated images, and **hides Delete** (inline images aren't library
+items). `libraryOpen` now resets Edit/Delete visibility so the shared lightbox
+stays consistent. Wired `img.gen-img` (editable) and every `.bubble-img` (click →
+view); both get `cursor:zoom-in`.
+
+**LIVE on chatgpt.comparegpt.io** (client-side, no key): clicking a generated
+image opened the viewer with Edit shown + Delete hidden; clicking an uploaded
+image opened it too. Headless `test_img_viewer.py` 10/10; img-download/image-edit/
+quote/stream-math/branch regressions green.
+
+---
+
 ## 2026-07-11 — Parity: live (streaming) math rendering
 
 **Request:** "continue to make it the same as ChatGPT." Math only rendered on the
